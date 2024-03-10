@@ -2,9 +2,11 @@
 
 # Instructions from the Aegis Paper
 
-## Package required
+## Installation
 
-    install python 3.6.9, pytorch 1.7.0, torchvision 0.8.1, tensorboardX 2.5, matplotlib 3.3.4, tqdm 4.60.0, pandas 1.1.5, numpy 1.18.5.
+    python3 -m venv env
+    source env/bin/activate
+    python3 -m pip install -r requirements.txt
 
 
 ## Train Models
