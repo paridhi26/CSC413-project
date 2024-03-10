@@ -1,0 +1,4 @@
+# Ignore env
+env/
+# Ignore logs
+logs/
