@@ -2,3 +2,7 @@
 env/
 # Ignore logs
 logs/
+
+# Ignore data
+**/data/
+**/save

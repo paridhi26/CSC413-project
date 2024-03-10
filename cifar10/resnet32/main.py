@@ -8,7 +8,7 @@ import torch.backends.cudnn as cudnn
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 from utils import AverageMeter, RecorderMeter, time_string, convert_secs2time, clustering_loss, change_quan_bitwidth, vote_for_predict
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import models
 from models.quantization import quan_Conv2d, quan_Linear, quantize
 
@@ -780,7 +780,7 @@ def validate2(val_loader, model, criterion, log, num_branch, ic_only, summary_ou
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
 
             # compute output
@@ -860,7 +860,7 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
     #count_break = random.randint(0, 30)
     for _, (data, target) in enumerate(train_loader):
         if args.use_cuda:
-            target = target.cuda(async=True)
+            target = target.cuda(non_blocking=True)
             data = data.cuda()
         # data = data[0]
         # data = torch.unsqueeze(data, axis=0) 
@@ -994,7 +994,7 @@ def adv_attack(attacker, model, model_clean, train_loader, test_loader,
     count=0
     for _, (data, target) in enumerate(train_loader):
         if args.use_cuda:
-            target = target.cuda(async=True)
+            target = target.cuda(non_blocking=True)
             data = data.cuda()
         # Override the target to prevent label leaking
         _, target = model(data)[-1].data.max(1)
@@ -1038,8 +1038,8 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
 
         if args.use_cuda:
             target = target.cuda(
-                async=True
-            )  # the copy will be asynchronous with respect to the host.
+                non_blocking=True
+            )  # the copy will be non_blockinghronous with respect to the host.
             input = input.cuda()
 
         # modify the model in advance
@@ -1226,7 +1226,7 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
 
             # compute output
@@ -1336,9 +1336,9 @@ def get_msd_T(args, test_loader, model):
     index = 0   
     for i, (input, target) in enumerate(test_loader):
         if args.use_cuda:
-            #target = target.cuda(async=True)
+            #target = target.cuda(non_blocking=True)
             input = input.cuda()
-        target = target.squeeze().long().cuda(async=True)
+        target = target.squeeze().long().cuda(non_blocking=True)
         target_var = Variable(target, volatile=True)
         input_var = Variable(input, volatile=True)
 
@@ -1460,7 +1460,7 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
             target_var = Variable(target, volatile=True)
         
@@ -1478,8 +1478,8 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
             num_c = 3#6 # the number of branches 
             branch_index = list(range(0, num_branch))#num_branch
             for j in range(input.size(0)):
-                #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
-                tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda(async=True)
+                #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(non_blocking=True)
+                tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda(non_blocking=True)
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
                 pre_index = random.sample(branch_index, num_c) # randomly selected index
                 pre_index = random.sample(index_list[4:], num_c) # randomly selected index

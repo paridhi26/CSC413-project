@@ -31,14 +31,14 @@ label_info=binarized
 save_path=./save/
 tb_path=${save_path}/tb_log  #tensorboard log path
 
-PYTHON="/usr/bin/python3.6"
+PYTHON="python3 -m"
 data_path='./data'
     
 echo $PYTHON
 
 ############### Neural network ############################
 {
-$PYTHON main.py --dataset ${dataset} --data_path ${data_path}   \
+$PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --arch ${model} --save_path ${save_path} \
     --epochs ${epochs} --learning_rate 0.01 \
     --optimizer ${optimizer} \
