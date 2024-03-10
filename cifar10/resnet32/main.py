@@ -251,8 +251,8 @@ def main():
         mean = [0.5, 0.5, 0.5]
         std = [0.5, 0.5, 0.5]
     elif args.dataset == 'mnist':
-        mean = [0.5, 0.5, 0.5]
-        std = [0.5, 0.5, 0.5]
+        mean = (0.5,)
+        std = (0.5,)
     elif args.dataset == 'imagenet':
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
@@ -281,6 +281,7 @@ def main():
         ])
         test_transform = transforms.Compose(
             [transforms.ToTensor(),
+            transforms.RandomCrop(32, padding=4), # simply pads the image
              transforms.Normalize(mean, std)])
 
     if args.dataset == 'mnist':
@@ -354,11 +355,14 @@ def main():
                                               num_workers=args.workers,
                                               pin_memory=True)
 
+    # x, y = next(iter(train_loader))
+    # print("Train image shape: ", x.shape)
+
     print_log("=> creating model '{}'".format(args.arch), log)
 
     # Init model, criterion, and optimizer
     net = models.__dict__[args.arch](num_classes)
-    print_log("=> network :\n {}".format(net), log)
+    # print_log("=> network :\n {}".format(net), log)
     if args.use_cuda:
         if args.ngpu > 1:
             net = torch.nn.DataParallel(net, device_ids=list(range(args.ngpu)))
@@ -1210,6 +1214,8 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
     top1 = AverageMeter()
     top5 = AverageMeter()
 
+    print("Validating...")
+
     top1_list = []
     for idx in range(num_branch):
         top1_list.append(AverageMeter())
@@ -1595,4 +1601,11 @@ def accuracy_logger(base_dir, epoch, train_accuracy, test_accuracy):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('Interrupted')
+        try:
+            sys.exit(130)
+        except SystemExit:
+            os._exit(130)

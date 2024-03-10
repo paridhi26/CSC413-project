@@ -50,6 +50,7 @@ class ResNetBasicblock(nn.Module):
         self.bn_b = nn.BatchNorm2d(planes)
 
         self.downsample = downsample
+        self.linearshape = linearshape
 
         #if self.add_output:
         if not linearshape == -1:
@@ -58,6 +59,7 @@ class ResNetBasicblock(nn.Module):
           self.output = None
 
     def forward(self, x):
+        print("Linear shape: ", self.linearshape)
         residual = x
 
         basicblock = self.conv_a(x)
@@ -69,11 +71,7 @@ class ResNetBasicblock(nn.Module):
 
         if self.downsample is not None:
             residual = self.downsample(x)
-        # t1=(residual + basicblock).size()[1]
-        # t2=(residual + basicblock).size()[2]
-        # t3=(residual + basicblock).size()[3]
-        
-        # print("size:", t1*t2*t3)
+
         return F.relu(residual + basicblock, inplace=True), self.output(residual + basicblock)
     def forward_2(self, x):
         residual = x
@@ -108,6 +106,7 @@ class CifarResNet(nn.Module):
     def __init__(self, block, depth, num_classes):
         """ Constructor
     Args:
+      block: ResNetBasicblock
       depth: number of layers.
       num_classes: number of classes
       base_width: base width
@@ -123,7 +122,7 @@ class CifarResNet(nn.Module):
 
         self.num_classes = num_classes
 
-        self.conv_1_3x3 = quan_Conv2d(3,
+        self.conv_1_3x3 = quan_Conv2d(1,
                                     16,
                                     kernel_size=3,
                                     stride=1,
@@ -131,13 +130,21 @@ class CifarResNet(nn.Module):
                                     bias=False)
         self.bn_1 = nn.BatchNorm2d(16)
 
+        # b_index is the index of branch_linearshape. 
+        # each make_layer increments b_index by 5.
+        # 16384 = 16 * 32 * 32
+        # 4096 = 4 * 32 * 32
+        # 1024 = 32 * 32
         self.inplanes = 16
+        # self.branch_linearshape = [12544, 12544, 12544, 12544, 12544, 3136, 3136, 3136, 3136, 3136, 784, 784, 784, 784, 784]
         self.branch_linearshape = [16384, 16384, 16384, 16384, 16384, 4096, 4096, 4096, 4096, 4096, 1024, 1024, 1024, 1024, 1024]
+
         self.b_index = 0
         self.stage_1, self.group1 = self._make_layer(block, 16, layer_blocks, 1)
         self.stage_2, self.group2 = self._make_layer(block, 32, layer_blocks, 2)
         self.stage_3, self.group3 = self._make_layer(block, 64, layer_blocks, 2)
         self.avgpool = nn.AvgPool2d(8)
+        # block.expansion = 1
         self.classifier = quan_Linear(64 * block.expansion, num_classes)
 
         ## branch network 1
@@ -160,6 +167,7 @@ class CifarResNet(nn.Module):
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = DownsampleA(self.inplanes, planes * block.expansion, stride)
         layers = []
+        # block = Resnetbasicblock(self, num_classes, inplanes, planes, linearshape, stride=1,  downsample=None)
         layers.append(block(self.num_classes, self.inplanes, planes, self.branch_linearshape[self.b_index], stride, downsample))
         print("self.b_index:", self.b_index)
         self.b_index += 1
@@ -171,6 +179,7 @@ class CifarResNet(nn.Module):
         return nn.Sequential(*layers), layers
 
     def forward(self, x):
+        print("Input size in model forward ", x.shape)
         x = self.conv_1_3x3(x)
         x = F.relu(self.bn_1(x), inplace=True)
         output_branch = []

@@ -137,9 +137,20 @@ def freeze_outputs(model):
             param.requires_grad = False
 
 
+# Print layer for debugging
+class PrintLayer(nn.Module):
+    def __init__(self):
+        super(PrintLayer, self).__init__()
+    
+    def forward(self, x):
+        # Do your print / debug stuff here
+        print(x.shape)
+        return x
+
 # the internal classifier for all SDNs
 class InternalClassifier(nn.Module):
     def __init__(self, input_size, output_channels, num_classes, branch_linearshape, alpha=0.5):
+        # Output channels = planes.
         super(InternalClassifier, self).__init__()
         #red_kernel_size = -1 # to test the effects of the feature reduction
         red_kernel_size = feature_reduction_formula(input_size) # get the pooling size
@@ -163,25 +174,30 @@ class InternalClassifier(nn.Module):
                 self.branch_channels = [16, 64, 32]
                 self.branch_layer=nn.Sequential(
                     nn.MaxPool2d(2, stride=2),
+                    PrintLayer(),
                     quan_Conv2d(self.output_channels, 
                     self.branch_channels[1], kernel_size=5,
                     stride=1, padding=2),
+                    PrintLayer(),
                     nn.BatchNorm2d(self.branch_channels[1]),
+                    PrintLayer(),
                     nn.ReLU(inplace=True),
                     nn.Flatten(),
                 )
         
         
-
+    # The actual forward function
     def forward_w_pooling(self, x):
         # avgp = self.alpha_mult.mul(self.alpha, self.max_pool(x))
         # maxp = self.alpha_mult.mul(1 - self.alpha, self.avg_pool(x))
         # mixed = avgp + maxp
         # return self.linear(mixed.view(mixed.size(0), -1))\
+        print("Input to IC: ", x.shape)
         if self.branch_linearshape != -1:
         #self.branch_layer.cuda()
+            print("Branch layer: ", self.branch_layer)
             out_ = self.branch_layer(x)
-            #print("out_size:", out_.size())
+            print("Output after branch layer:", out_.size())
             out_ = self.quan_layer_branch(out_)
         else:
             maxp = self.avg_pool(x)
