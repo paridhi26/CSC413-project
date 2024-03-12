@@ -123,6 +123,8 @@ class quan_Linear(nn.Linear):
             self.__reset_stepsize__()
             weight_quan = quantize(self.weight, self.step_size,
                                    self.half_lvls) * self.step_size
+            # print("Input shape to linear ", input.shape)
+            # print("-"*25)
             return F.linear(input, weight_quan, self.bias)
 
     def __reset_stepsize__(self):

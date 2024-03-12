@@ -206,6 +206,8 @@ if args.use_cuda:
     torch.cuda.manual_seed_all(args.manualSeed)
 
 cudnn.benchmark = True
+import signal
+signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 ###############################################################################
 ###############################################################################

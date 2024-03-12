@@ -174,13 +174,13 @@ class InternalClassifier(nn.Module):
                 self.branch_channels = [16, 64, 32]
                 self.branch_layer=nn.Sequential(
                     nn.MaxPool2d(2, stride=2),
-                    PrintLayer(),
+                    # PrintLayer(),
                     quan_Conv2d(self.output_channels, 
                     self.branch_channels[1], kernel_size=5,
                     stride=1, padding=2),
-                    PrintLayer(),
+                    # PrintLayer(),
                     nn.BatchNorm2d(self.branch_channels[1]),
-                    PrintLayer(),
+                    # PrintLayer(),
                     nn.ReLU(inplace=True),
                     nn.Flatten(),
                 )
@@ -192,12 +192,12 @@ class InternalClassifier(nn.Module):
         # maxp = self.alpha_mult.mul(1 - self.alpha, self.avg_pool(x))
         # mixed = avgp + maxp
         # return self.linear(mixed.view(mixed.size(0), -1))\
-        print("Input to IC: ", x.shape)
+        # print("Input to IC: ", x.shape)
         if self.branch_linearshape != -1:
         #self.branch_layer.cuda()
-            print("Branch layer: ", self.branch_layer)
+            # print("Branch layer: ", self.branch_layer)
             out_ = self.branch_layer(x)
-            print("Output after branch layer:", out_.size())
+            # print("Output after branch layer:", out_.size())
             out_ = self.quan_layer_branch(out_)
         else:
             maxp = self.avg_pool(x)

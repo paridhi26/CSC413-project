@@ -59,7 +59,7 @@ class ResNetBasicblock(nn.Module):
           self.output = None
 
     def forward(self, x):
-        print("Linear shape: ", self.linearshape)
+        # print("Linear shape: ", self.linearshape)
         residual = x
 
         basicblock = self.conv_a(x)
@@ -179,13 +179,14 @@ class CifarResNet(nn.Module):
         return nn.Sequential(*layers), layers
 
     def forward(self, x):
-        print("Input size in model forward ", x.shape)
+        # print("Input size in model forward ", x.shape)
         x = self.conv_1_3x3(x)
         x = F.relu(self.bn_1(x), inplace=True)
         output_branch = []
         for g in range(1, 4):
           layer_num = len(getattr(self, 'group{}'.format(g)))
           for i in range(layer_num):
+            # Apply group[g] layer[i] to x
             x, branch_out = getattr(self, 'group{}'.format(g))[i](x)
             output_branch.append(branch_out)
 
