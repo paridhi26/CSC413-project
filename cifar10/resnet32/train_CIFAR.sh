@@ -21,10 +21,10 @@ DATE=`date +%Y-%m-%d`
 enable_tb_display=false # enable tensorboard display
 model=resnet32_quan
 dataset=mnist
-epochs=200
-train_batch_size=128
-test_batch_size=128
-optimizer=SGD
+epochs=50
+train_batch_size=64
+test_batch_size=64
+optimizer=Adam
 
 label_info=binarized
 

@@ -276,15 +276,17 @@ def main():
         ])  # here is actually the validation dataset
     else:
         train_transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
+            transforms.Resize(32),
             transforms.RandomCrop(32, padding=4),
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
-        test_transform = transforms.Compose(
-            [transforms.ToTensor(),
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
             transforms.RandomCrop(32, padding=4), # simply pads the image
-             transforms.Normalize(mean, std)])
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
 
     if args.dataset == 'mnist':
         train_data = dset.MNIST(args.data_path,
@@ -582,7 +584,7 @@ def main():
     start_time = time.time()
     epoch_time = AverageMeter()
     
-    val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+    # val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
     print("epoch :", args.start_epoch, args.epochs)
     count=0
     is_best_defense_best=0
@@ -636,13 +638,16 @@ def main():
             epoch_time.avg * (args.epochs - epoch))
         need_time = '[Need: {:02d}:{:02d}:{:02d}]'.format(
             need_hour, need_mins, need_secs)
-
-        print_log(
-            '\n==>>{:s} [Epoch={:03d}/{:03d}] {:s} [LR={:6.4f}][M={:1.2f}]'.format(time_string(), epoch, args.epochs,
-                                                                                   need_time, current_learning_rate,
-                                                                                   current_momentum) \
-            + ' [Best : Accuracy={:.2f}, Error={:.2f}]'.format(recorder.max_accuracy(False),
-                                                               100 - recorder.max_accuracy(False)), log)
+        
+        if epoch > 0:
+            print_log(
+                '\n==>>{:s} [Epoch={:03d}/{:03d}] {:s} [LR={:6.4f}][M={:1.2f}]'.format(time_string(), epoch, args.epochs,
+                        need_time, current_learning_rate,
+                        current_momentum) \
+                + ' [Best : Accuracy={:.2f}, Error={:.2f}]'.format(
+                    recorder.max_accuracy(False),
+                    100 - recorder.max_accuracy(False)),
+                log)
 
         
         # train for one epoch
@@ -652,8 +657,6 @@ def main():
         # train_acc, train_los = train(train_loader, net, criterion, optimizer,
         #                              epoch, log, list_shape, True)
 
-
-       
 
         # evaluate on validation set
         val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
@@ -763,6 +766,7 @@ def main():
     val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
         
     log.close()
+
 index_list = []
 def validate2(val_loader, model, criterion, log, num_branch, ic_only, summary_output=False):
     global index_list
@@ -1155,7 +1159,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
                 'Prec_B6@1 {top1_b6.val:.3f} ({top1_b6.avg:.3f})   '
                 'Prec_B6@5 {top5_b6.val:.3f} ({top5_b6.avg:.3f})   '
                 'Prec_Bmain@1 {top1_main.val:.3f} ({top1_main.avg:.3f})   '
-                'Prec_Bmain@5 {top5_main.val:.3f} ({top5_main.avg:.3f})   '
+                'Prec_Bmain@5 {top5_main.val:.3f} ({top5_main.avg:.3f})\n   '
                 .format(
                     epoch,
                     i,
