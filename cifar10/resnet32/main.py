@@ -494,6 +494,7 @@ def main():
             input = input.cuda()
         break 
     
+    print(input.shape)
     output_branch = net(input)
     num_branch = len(output_branch) # the number of branches
     val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)

@@ -7,5 +7,7 @@ models/__pycache__/
 
 
 save/*
+evaluation_saves/*
+saved_models/*
 
 *.pyc

@@ -113,7 +113,7 @@ class CifarResNet(nn.Module):
     """
         super(CifarResNet, self).__init__()
 
-        #Model type specifies number of layers for CIFAR-10 and CIFAR-100 model
+        # Model type specifies number of layers for CIFAR-10 and CIFAR-100 model
         assert (depth -
                 2) % 6 == 0, 'depth should be one of 20, 32, 44, 56, 110'
         layer_blocks = (depth - 2) // 6
@@ -122,7 +122,7 @@ class CifarResNet(nn.Module):
 
         self.num_classes = num_classes
 
-        self.conv_1_3x3 = quan_Conv2d(1,
+        self.conv_1_3x3 = quan_Conv2d(3, # number of channels, to change.
                                     16,
                                     kernel_size=3,
                                     stride=1,
@@ -159,7 +159,7 @@ class CifarResNet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
             elif isinstance(m, nn.Linear):
-                init.kaiming_normal(m.weight)
+                init.kaiming_normal_(m.weight)
                 m.bias.data.zero_()
 
     def _make_layer(self, block, planes, blocks, stride):
