@@ -10,4 +10,6 @@ save/*
 evaluation_saves/*
 saved_models/*
 
+save_finetune/*
+
 *.pyc

@@ -103,7 +103,7 @@ class CifarResNet(nn.Module):
   ResNet optimized for the Cifar dataset, as specified in
   https://arxiv.org/abs/1512.03385.pdf
   """
-    def __init__(self, block, depth, num_classes):
+    def __init__(self, block, depth, num_classes, num_channels):
         """ Constructor
     Args:
       block: ResNetBasicblock
@@ -122,7 +122,7 @@ class CifarResNet(nn.Module):
 
         self.num_classes = num_classes
 
-        self.conv_1_3x3 = quan_Conv2d(3, # number of channels, to change.
+        self.conv_1_3x3 = quan_Conv2d(num_channels, 
                                     16,
                                     kernel_size=3,
                                     stride=1,

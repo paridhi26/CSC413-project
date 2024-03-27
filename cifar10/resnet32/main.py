@@ -287,7 +287,7 @@ def main():
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
-
+    num_channels = 3
     if args.dataset == 'mnist':
         train_data = dset.MNIST(args.data_path,
                                 train=True,
@@ -298,6 +298,7 @@ def main():
                                transform=test_transform,
                                download=True)
         num_classes = 10
+        num_channels = 1
     elif args.dataset == 'cifar10':
         train_data = dset.CIFAR10(args.data_path,
                                   train=True,
@@ -365,7 +366,7 @@ def main():
     print_log("=> creating model '{}'".format(args.arch), log)
 
     # Init model, criterion, and optimizer
-    net = models.__dict__[args.arch](num_classes)
+    net = models.__dict__[args.arch](num_classes, num_channels)
     # print_log("=> network :\n {}".format(net), log)
     if args.use_cuda:
         if args.ngpu > 1:
@@ -431,13 +432,13 @@ def main():
                 #checkpoint = torch.load('/home/wangjialai/copy_for_use/flip_attack/old_cifar/BFA_branch_stage2/save_backup/cifar10_resnet20_quan_160_SGD_binarized/model_best.pth.tar')
             
             else:
-                checkpoint = torch.load('./save/model_best.pth.tar')#checkpoint_branch.pth.tar#model_best_def.pth.tar
+                checkpoint = torch.load(args.resume)#checkpoint_branch.pth.tar#model_best_def.pth.tar
             
             #if not (args.fine_tune):
             if True:
-                args.start_epoch = 0#checkpoint['epoch']
+                args.start_epoch = 0 #checkpoint['epoch']
                 recorder = checkpoint['recorder']
-                #optimizer.load_state_dict(checkpoint['optimizer'])
+                optimizer.load_state_dict(checkpoint['optimizer'])
 
             state_tmp = net.state_dict()
             if 'state_dict' in checkpoint.keys():
@@ -584,20 +585,17 @@ def main():
     # Main loop
     start_time = time.time()
     epoch_time = AverageMeter()
-    
-    # val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+ 
     print("epoch :", args.start_epoch, args.epochs)
     count=0
     is_best_defense_best=0
     is_best_defense=0
-    if args.resume:
-        # for item in filter(lambda param: param.requires_grad, net.parameters()):
-        #     print("item:", item.name)
+    # if args.resume:
         
-        optimizer = torch.optim.Adam(filter(lambda param: param.requires_grad,
-                                            net.parameters()),
-                                     lr=0.01,
-                                     weight_decay=0.0005)
+    #     optimizer = torch.optim.Adam(filter(lambda param: param.requires_grad,
+    #                                         net.parameters()),
+    #                                  lr=0.01,
+    #                                  weight_decay=0.0005)
     net_flipped = 0
     # block for weight reset
     if args.adv_train: # adv train robust ic

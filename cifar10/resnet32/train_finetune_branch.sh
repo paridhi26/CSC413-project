@@ -33,14 +33,14 @@ tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
 data_path='./data'
-pretrained_model=./save/model_best.pth.tar
+pretrained_model=./saved_models/mnist5/model_best.pth.tar
 
 echo $PYTHON
 
 ############### Neural network ############################
 {
 # srun -p csc413 --gres gpu \
-$PYTHON main.py --dataset ${dataset} --data_path ${data_path}   \
+$PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --arch ${model} --save_path ${save_path} \
     --epochs ${epochs} --learning_rate 0.005 \
     --optimizer ${optimizer} \
