@@ -283,7 +283,6 @@ def main():
         ])
         test_transform = transforms.Compose([
             transforms.Resize(32),
-            transforms.RandomCrop(32, padding=4), # simply pads the image
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
@@ -364,7 +363,7 @@ def main():
     # print("Train image shape: ", x.shape)
 
     print_log("=> creating model '{}'".format(args.arch), log)
-
+    print("Num channels:", num_channels)
     # Init model, criterion, and optimizer
     net = models.__dict__[args.arch](num_classes, num_channels)
     # print_log("=> network :\n {}".format(net), log)
@@ -495,7 +494,7 @@ def main():
             input = input.cuda()
         break 
     
-    print(input.shape)
+    print("Input shape:", input.shape)
     output_branch = net(input)
     num_branch = len(output_branch) # the number of branches
     val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
@@ -1076,12 +1075,13 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
 
 
         loss = 0
-        
-        if args.resume:
-            for idx in range(len(output_branch)-1):
-                loss += w[idx] * criterion(output_branch[idx], target)
-        else:
-            loss = criterion(output_branch[-1], target)
+        # parser.add_argument('--weight', default='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1', 
+                    #   help='weight')
+        # if args.resume:
+        #     for idx in range(len(output_branch)-1):
+        #         loss += w[idx] * criterion(output_branch[idx], target)
+        # else:
+        loss = criterion(output_branch[-1], target)
         
 
         if args.clustering:

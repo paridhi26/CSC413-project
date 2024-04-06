@@ -8,7 +8,7 @@ import torch.backends.cudnn as cudnn
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 from utils import AverageMeter, RecorderMeter, time_string, convert_secs2time, clustering_loss, change_quan_bitwidth, vote_for_predict
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import models
 from models.quantization import quan_Conv2d, quan_Linear, quantize
 
@@ -207,6 +207,9 @@ if args.use_cuda:
 
 cudnn.benchmark = True
 
+import signal
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+
 ###############################################################################
 ###############################################################################
 
@@ -251,8 +254,8 @@ def main():
         mean = [0.5, 0.5, 0.5]
         std = [0.5, 0.5, 0.5]
     elif args.dataset == 'mnist':
-        mean = [0.5, 0.5, 0.5]
-        std = [0.5, 0.5, 0.5]
+        mean = (0.5,)
+        std = (0.5,)
     elif args.dataset == 'imagenet':
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
@@ -279,10 +282,11 @@ def main():
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
-        test_transform = transforms.Compose(
-            [transforms.ToTensor(),
-             transforms.Normalize(mean, std)])
-
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)])
+    num_channels = 3
     if args.dataset == 'mnist':
         train_data = dset.MNIST(args.data_path,
                                 train=True,
@@ -293,6 +297,7 @@ def main():
                                transform=test_transform,
                                download=True)
         num_classes = 10
+        num_channels = 1
     elif args.dataset == 'cifar10':
         train_data = dset.CIFAR10(args.data_path,
                                   train=True,
@@ -357,7 +362,7 @@ def main():
     print_log("=> creating model '{}'".format(args.arch), log)
 
     # Init model, criterion, and optimizer
-    net = models.__dict__[args.arch](num_classes)
+    net = models.__dict__[args.arch](num_classes, num_channels)
     print_log("=> network :\n {}".format(net), log)
     if args.use_cuda:
         if args.ngpu > 1:
@@ -423,7 +428,7 @@ def main():
                 #checkpoint = torch.load('/home/wangjialai/copy_for_use/flip_attack/old_cifar/BFA_branch_stage2/save_backup/cifar10_resnet20_quan_160_SGD_binarized/model_best.pth.tar')
             
             else:
-                checkpoint = torch.load('./save/model_best.pth.tar')#checkpoint_branch.pth.tar#model_best_def.pth.tar
+                checkpoint = torch.load(args.resume)#checkpoint_branch.pth.tar#model_best_def.pth.tar
             
             #if not (args.fine_tune):
             if True:
@@ -486,6 +491,7 @@ def main():
             input = input.cuda()
         break 
     
+    print("Input shape:", input.shape)
     output_branch = net(input)
     num_branch = len(output_branch) # the number of branches
     
@@ -577,7 +583,6 @@ def main():
     start_time = time.time()
     epoch_time = AverageMeter()
     
-    val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
     print("epoch :", args.start_epoch, args.epochs)
     count=0
     is_best_defense_best=0
@@ -632,12 +637,15 @@ def main():
         need_time = '[Need: {:02d}:{:02d}:{:02d}]'.format(
             need_hour, need_mins, need_secs)
 
-        print_log(
-            '\n==>>{:s} [Epoch={:03d}/{:03d}] {:s} [LR={:6.4f}][M={:1.2f}]'.format(time_string(), epoch, args.epochs,
-                                                                                   need_time, current_learning_rate,
-                                                                                   current_momentum) \
-            + ' [Best : Accuracy={:.2f}, Error={:.2f}]'.format(recorder.max_accuracy(False),
-                                                               100 - recorder.max_accuracy(False)), log)
+        if epoch > 0:
+            print_log(
+                '\n==>>{:s} [Epoch={:03d}/{:03d}] {:s} [LR={:6.4f}][M={:1.2f}]'.format(time_string(), epoch, args.epochs,
+                        need_time, current_learning_rate,
+                        current_momentum) \
+                + ' [Best : Accuracy={:.2f}, Error={:.2f}]'.format(
+                    recorder.max_accuracy(False),
+                    100 - recorder.max_accuracy(False)),
+                log)
 
         
         # train for one epoch
@@ -781,7 +789,7 @@ def validate2(val_loader, model, criterion, log, num_branch, ic_only, summary_ou
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
 
             # compute output
@@ -861,7 +869,7 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
     #count_break = random.randint(0, 30)
     for _, (data, target) in enumerate(train_loader):
         if args.use_cuda:
-            target = target.cuda(async=True)
+            target = target.cuda(non_blocking=True)
             data = data.cuda()
         # data = data[0]
         # data = torch.unsqueeze(data, axis=0) 
@@ -995,7 +1003,7 @@ def adv_attack(attacker, model, model_clean, train_loader, test_loader,
     count=0
     for _, (data, target) in enumerate(train_loader):
         if args.use_cuda:
-            target = target.cuda(async=True)
+            target = target.cuda(non_blocking=True)
             data = data.cuda()
         # Override the target to prevent label leaking
         _, target = model(data)[-1].data.max(1)
@@ -1039,7 +1047,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
 
         if args.use_cuda:
             target = target.cuda(
-                async=True
+                non_blocking=True
             )  # the copy will be asynchronous with respect to the host.
             input = input.cuda()
 
@@ -1069,11 +1077,11 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
 
         loss = 0
         
-        if args.resume:
-            for idx in range(len(output_branch)-1):
-                loss += w[idx] * criterion(output_branch[idx], target)
-        else:
-            loss = criterion(output_branch[-1], target)
+        # if args.resume:
+        #     for idx in range(len(output_branch)-1):
+        #         loss += w[idx] * criterion(output_branch[idx], target)
+        # else:
+        loss = criterion(output_branch[-1], target)
         
 
         if args.clustering:
@@ -1219,7 +1227,7 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
         top5_list.append(AverageMeter())
 
 
-
+    print("Validating...")
     # switch to evaluate mode
     model.eval()
     output_summary = [] # init a list for output summary
@@ -1227,7 +1235,7 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
 
             # compute output
@@ -1337,9 +1345,9 @@ def get_msd_T(args, test_loader, model):
     index = 0   
     for i, (input, target) in enumerate(test_loader):
         if args.use_cuda:
-            #target = target.cuda(async=True)
+            #target = target.cuda(non_blocking=True
             input = input.cuda()
-        target = target.squeeze().long().cuda(async=True)
+        target = target.squeeze().long().cuda(non_blocking=True)
         target_var = Variable(target, volatile=True)
         input_var = Variable(input, volatile=True)
 
@@ -1461,7 +1469,7 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
             target_var = Variable(target, volatile=True)
         
@@ -1479,8 +1487,8 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
             num_c = 3#6 # the number of branches 
             branch_index = list(range(0, num_branch))#num_branch
             for j in range(input.size(0)):
-                #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
-                tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda(async=True)
+                #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(non_blocking=True)
+                tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda(non_blocking=True)
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
                 pre_index = random.sample(branch_index, num_c) # randomly selected index
                 #pre_index = random.sample(index_list[0:], num_c) # randomly selected index

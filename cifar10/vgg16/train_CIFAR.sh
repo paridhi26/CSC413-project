@@ -21,30 +21,31 @@ DATE=`date +%Y-%m-%d`
 enable_tb_display=false # enable tensorboard display
 model=vgg16_quan
 dataset=cifar10
-epochs=200
+epochs=60
 train_batch_size=128
 test_batch_size=128
-optimizer=SGD
+optimizer=Adam
 
 label_info=binarized
 
 save_path=./save/
 tb_path=${save_path}/tb_log  #tensorboard log path
 
-PYTHON="/usr/bin/python3.6"
+PYTHON="python3 -m"
 data_path='./data'
 echo $PYTHON
 
 ############### Neural network ############################
 {
-$PYTHON main.py --dataset ${dataset} --data_path ${data_path}   \
+srun -p csc413 --gres gpu \
+$PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --arch ${model} --save_path ${save_path} \
     --epochs ${epochs} --learning_rate 0.01 \
     --optimizer ${optimizer} \
 	--schedule 80 120  --gammas 0.1 0.1 \
     --attack_sample_size ${train_batch_size} \
     --test_batch_size ${test_batch_size} \
-    --workers 4 --ngpu 1 --gpu_id 1 \
+    --workers 1 --ngpu 1 --gpu_id 1 \
     --print_freq 100 --decay 0.0005 --momentum 0.9 \
     # --ic_only #default false
     #--bfa_mydefense

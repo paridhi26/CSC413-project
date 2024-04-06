@@ -165,9 +165,9 @@ class ConvBlockWOutput(nn.Module):
 
 
 
-def make_layers(cfg, add_output, num_classes, conv_channels, max_pool_sizes, fc_layer_sizes, input_size=32, batch_norm=False):
+def make_layers(cfg, add_output, num_classes, num_channels, conv_channels, max_pool_sizes, fc_layer_sizes, input_size=32, batch_norm=False):
     layers = []
-    in_channels = 3
+    in_channels = num_channels
     cur_input_size = input_size
     output_id = 0
     branch_linearshape=[16384, 4096, 4096, 1024, 1024, 1024, 256, 256]
@@ -211,50 +211,50 @@ cfg = {
 }
 
 
-def vgg11_quan(num_classes=10):
+def vgg11_quan(num_classes=10, num_channels=3):
     """VGG 11-layer model (configuration "A")"""
     return VGG(make_layers(cfg['A']))
 
 
-def vgg11_bn_quan(num_classes=10):
+def vgg11_bn_quan(num_classes=10, num_channels=3):
     """VGG 11-layer model (configuration "A") with batch normalization"""
     return VGG(make_layers(cfg['A'], batch_norm=True))
 
 
-def vgg13(num_classes=10):
+def vgg13(num_classes=10, num_channels=3):
     """VGG 13-layer model (configuration "B")"""
     return VGG(make_layers(cfg['B']))
 
 
-def vgg13_bn(num_classes=10):
+def vgg13_bn(num_classes=10, num_channels=3):
     """VGG 13-layer model (configuration "B") with batch normalization"""
     return VGG(make_layers(cfg['B'], batch_norm=True))
 
 
-def vgg16_quan(num_classes=10):#use bacthnorm, the same as vgg16_bn
+def vgg16_quan(num_classes=10, num_channels=3):#use bacthnorm, the same as vgg16_bn
     """VGG 16-layer model (configuration "D")"""
     add_output = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] 
     conv_channels =  [64, 64, 128, 128, 256, 256, 256, 512, 512, 512, 512, 512, 512] # the first element is input dimension
     max_pool_sizes = [1, 2, 1, 2, 1, 1, 2, 1, 1, 2, 1, 1, 2]
     fc_layer_sizes = [512, 512]
-    return VGG(make_layers(cfg['D'], add_output, num_classes, conv_channels, max_pool_sizes, fc_layer_sizes) )
+    return VGG(make_layers(cfg['D'], add_output, num_classes, num_channels, conv_channels, max_pool_sizes, fc_layer_sizes) )
 
 
 
-def vgg16_bn(num_classes=10):
+def vgg16_bn(num_classes=10, num_channels=3):
     """VGG 16-layer model (configuration "D") with batch normalization"""
     add_output = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] 
     conv_channels =  [64, 64, 128, 128, 256, 256, 256, 512, 512, 512, 512, 512, 512] # the first element is input dimension
     max_pool_sizes = [1, 2, 1, 2, 1, 1, 2, 1, 1, 2, 1, 1, 2]
     fc_layer_sizes = [512, 512]
-    return VGG(make_layers(cfg['D'], add_output, num_classes, conv_channels, max_pool_sizes, fc_layer_sizes) )
+    return VGG(make_layers(cfg['D'], add_output, num_classes, num_channels, conv_channels, max_pool_sizes, fc_layer_sizes) )
 
 
-def vgg19(num_classes=10):
+def vgg19(num_classes=10, num_channels=3):
     """VGG 19-layer model (configuration "E")"""
     return VGG(make_layers(cfg['E']))
 
 
-def vgg19_bn(num_classes=10):
+def vgg19_bn(num_classes=10, num_channels=3):
     """VGG 19-layer model (configuration 'E') with batch normalization"""
     return VGG(make_layers(cfg['E'], batch_norm=True))

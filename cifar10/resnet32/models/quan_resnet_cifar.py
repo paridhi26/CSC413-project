@@ -227,12 +227,12 @@ class CifarResNet(nn.Module):
       return outputs
 
 
-def resnet20_quan(num_classes=10):
+def resnet20_quan(num_classes=10, num_channels=3):
     """Constructs a ResNet-20 model for CIFAR-10 (by default)
   Args:
     num_classes (uint): number of classes
   """
-    model = CifarResNet(ResNetBasicblock, 20, num_classes)
+    model = CifarResNet(ResNetBasicblock, 20, num_classes, num_channels)
     return model
 
 
