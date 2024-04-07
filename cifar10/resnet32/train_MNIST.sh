@@ -21,14 +21,14 @@ DATE=`date +%Y-%m-%d`
 enable_tb_display=false # enable tensorboard display
 model=resnet32_quan
 dataset=mnist
-epochs=50
+epochs=30
 train_batch_size=128
 test_batch_size=128
 optimizer=Adam
 
 label_info=binarized
 
-save_path=./saved_models/mnist50
+save_path=./saved_models/mnist30
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
@@ -38,7 +38,7 @@ echo $PYTHON
 
 ############### Neural network ############################
 {
-# srun -p csc413 --gres gpu \
+srun -p csc413 --gres gpu \
 $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --arch ${model} --save_path ${save_path} \
     --epochs ${epochs} --learning_rate 0.01 \
@@ -46,9 +46,9 @@ $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
 	--schedule 80 120  --gammas 0.1 0.1 \
     --attack_sample_size ${train_batch_size} \
     --test_batch_size ${test_batch_size} \
-    --workers 1 --ngpu 1 --gpu_id 2 \
-    --print_freq 100 --decay 0.0003 --momentum 0.9
-    # --resume ./saved_models/mnist5/model_best.pth.tar
+    --workers 1 --ngpu 1 \
+    --print_freq 100 --decay 0.0003 --momentum 0.9 \
+    --resume ./saved_models/mnist25/model_best.pth.tar
     # --ic_only #default false
     #--bfa_mydefense
     # --clustering --lambda_coeff 1e-3    

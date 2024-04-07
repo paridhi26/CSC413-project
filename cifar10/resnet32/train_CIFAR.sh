@@ -28,7 +28,7 @@ optimizer=Adam
 
 label_info=binarized
 
-save_path=./saved_models/cifar10-60/
+save_path=./saved_models/cifar10-50/
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
@@ -46,9 +46,9 @@ $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
 	--schedule 80 120  --gammas 0.1 0.1 \
     --attack_sample_size ${train_batch_size} \
     --test_batch_size ${test_batch_size} \
-    --workers 1 --ngpu 1 --gpu_id 2 \
+    --workers 1 --ngpu 1 \
     --print_freq 100 --decay 0.0003 --momentum 0.9 \
-    --resume ./saved_models/cifar10-10/model_best.pth.tar
+    --resume ./saved_models/cifar10-15/model_best.pth.tar
     # --ic_only #default false
     #--bfa_mydefense
     # --clustering --lambda_coeff 1e-3    

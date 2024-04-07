@@ -190,9 +190,9 @@ parser.add_argument('--weight', default='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
                       help='weight')
 args = parser.parse_args()
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-if args.ngpu == 1:
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(
-        args.gpu_id)  # make only device #gpu_id visible, then
+# if args.ngpu == 1:
+#     os.environ["CUDA_VISIBLE_DEVICES"] = str(
+#         args.gpu_id)  # make only device #gpu_id visible, then
 
 args.use_cuda = args.ngpu > 0 and torch.cuda.is_available()  # check GPU
 
@@ -420,6 +420,7 @@ def main():
 
     # optionally resume from a checkpoint
     if args.resume:
+        print("=> loading checkpoint '{}'".format(args.resume))
         if os.path.isfile(args.resume):
             print_log("=> loading checkpoint '{}'".format(args.resume), log)
             #checkpoint = torch.load(args.resume)
@@ -435,8 +436,8 @@ def main():
             
             #if not (args.fine_tune):
             if True:
-                args.start_epoch = 0 #checkpoint['epoch']
-                recorder = checkpoint['recorder']
+                args.start_epoch = checkpoint['epoch']
+                # recorder = checkpoint['recorder']
                 optimizer.load_state_dict(checkpoint['optimizer'])
 
             state_tmp = net.state_dict()
@@ -629,8 +630,11 @@ def main():
         #     break
         # if epoch > 20:
         #     break
+        
+        # Note that: this is nonsense.
         current_learning_rate, current_momentum = adjust_learning_rate(
             optimizer, epoch, args.gammas, args.schedule)
+        
         # Display simulation time
         need_hour, need_mins, need_secs = convert_secs2time(
             epoch_time.avg * (args.epochs - epoch))

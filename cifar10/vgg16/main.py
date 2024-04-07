@@ -432,9 +432,9 @@ def main():
             
             #if not (args.fine_tune):
             if True:
-                args.start_epoch = 0#checkpoint['epoch']
-                recorder = checkpoint['recorder']
-                #optimizer.load_state_dict(checkpoint['optimizer'])
+                args.start_epoch = checkpoint['epoch']
+                # recorder = checkpoint['recorder']
+                optimizer.load_state_dict(checkpoint['optimizer'])
 
             state_tmp = net.state_dict()
             if 'state_dict' in checkpoint.keys():
