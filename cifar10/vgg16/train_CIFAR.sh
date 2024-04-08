@@ -21,14 +21,14 @@ DATE=`date +%Y-%m-%d`
 enable_tb_display=false # enable tensorboard display
 model=vgg16_quan
 dataset=cifar10
-epochs=50
+epochs=60
 train_batch_size=128
 test_batch_size=128
 optimizer=Adam
 
 label_info=binarized
 
-save_path=./vgg_models/cifar50
+save_path=./vgg_models/cifar60
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
@@ -47,6 +47,7 @@ $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --test_batch_size ${test_batch_size} \
     --workers 1 --ngpu 1 \
     --print_freq 100 --decay 0.0005 --momentum 0.9 \
+    --resume ./vgg_models/cifar50/model_best.pth.tar
     # --ic_only #default false
     #--bfa_mydefense
     # --clustering --lambda_coeff 1e-3    

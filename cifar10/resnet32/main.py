@@ -1081,6 +1081,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
         loss = 0
         # parser.add_argument('--weight', default='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1', 
                     #   help='weight')
+        # Perhaps this is used for IC training??
         # if args.resume:
         #     for idx in range(len(output_branch)-1):
         #         loss += w[idx] * criterion(output_branch[idx], target)
@@ -1573,7 +1574,7 @@ def adjust_learning_rate(optimizer, epoch, gammas, schedule):
 
 
 def accuracy(output, target, topk=(1, )):
-    """Computes the precision@k for the specified values of k"""
+    """Computes the accuracy@k for the specified values of k"""
     with torch.no_grad():
         maxk = max(topk)
         batch_size = target.size(0)

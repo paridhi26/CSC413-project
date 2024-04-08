@@ -41,14 +41,14 @@ echo $PYTHON
 srun -p csc413 --gres gpu \
 $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --arch ${model} --save_path ${save_path} \
-    --epochs ${epochs} --learning_rate 0.01 \
+    --epochs ${epochs} --learning_rate 0.0004 \
     --optimizer ${optimizer} \
 	--schedule 80 120  --gammas 0.1 0.1 \
     --attack_sample_size ${train_batch_size} \
     --test_batch_size ${test_batch_size} \
     --workers 1 --ngpu 1 \
-    --print_freq 100 --decay 0.0003 --momentum 0.9 \
-    --resume ./saved_models/mnist25/model_best.pth.tar
+    --print_freq 100 --decay 0.0003 --momentum 0.9
+    # --resume ./saved_models/mnist25/model_best.pth.tar
     # --ic_only #default false
     #--bfa_mydefense
     # --clustering --lambda_coeff 1e-3    
