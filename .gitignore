@@ -11,6 +11,9 @@ logs/
 **/save_finetune
 **/vgg_models
 **/save_woROB
+**/save_tmp
+**/train_samples
+**/test_samples
 
 # ignore folders 
 __pycache__/

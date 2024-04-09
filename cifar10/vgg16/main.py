@@ -184,7 +184,11 @@ parser.add_argument('--ic_only',
 parser.add_argument('--adv_train',
                     dest='adv_train',
                     action='store_true',
-                    help='adv train robust branch')                   
+                    help='adv train robust branch')  
+parser.add_argument('--aug_train',
+                    dest='aug_train',
+                    action='store_true',
+                    help='augmented training')                   
 
 parser.add_argument('--weight', default='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1', 
                       help='weight')
