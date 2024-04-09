@@ -59,12 +59,13 @@ class BFA(object):
         _, b_grad_max_idx = b_grad_topk.abs().view(-1).topk(self.n_bits2flip)
         bit2flip = b_grad_topk.clone().view(-1).zero_()
 
-        if grad_max.item() != 0:  # ensure the max grad is not zero
-            bit2flip[b_grad_max_idx] = 1
-            bit2flip = bit2flip.view(b_grad_topk.size())
-        else:
-            pass
+        bit2flip[b_grad_max_idx] = 1
+        bit2flip = bit2flip.view(b_grad_topk.size())
 
+        # print('b_grad_topk:', b_grad_topk.shape)
+        # print('bit2flip:', bit2flip.shape)
+        # print(m.b_w.shape)
+        # print(w_bin_topk.shape)
         # 6. Based on the identified bit indexed by ```bit2flip```, generate another
         # mask, then perform the bitwise xor operation to realize the bit-flip.
         w_bin_topk_flipped = (bit2flip.short() * m.b_w.abs().short()).sum(0, dtype=torch.int16) \
@@ -88,7 +89,7 @@ class BFA(object):
         '''
         # Note that, attack has to be done in evaluation model due to batch-norm.
         # see: https://discuss.pytorch.org/t/what-does-model-eval-do-for-batchnorm-layer/7146
-        #model.eval()
+        # model.eval()
         #model.train()
         
 
@@ -143,6 +144,7 @@ class BFA(object):
                     clean_weight = module.weight.data.detach()
                     if module.weight.grad==None:
                         continue
+                    # print("name:", name)
                     attack_weight = self.flip_bit(module)
                     # change the weight to attacked weight and get loss
                     module.weight.data = attack_weight

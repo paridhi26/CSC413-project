@@ -10,6 +10,7 @@ logs/
 **/saved_models
 **/save_finetune
 **/vgg_models
+**/save_woROB
 
 # ignore folders 
 __pycache__/

@@ -19,8 +19,8 @@ DATE=`date +%Y-%m-%d`
 
 ############### Configurations ########################
 enable_tb_display=false # enable tensorboard display
-model=resnet32_quan
-dataset=finetune_mnist # trained on CIFAR, fine-tuned with MNIST
+model=vgg16_quan
+dataset=finetune_mnist
 epochs=30
 train_batch_size=128
 test_batch_size=128
@@ -33,7 +33,7 @@ tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
 data_path='./data'
-pretrained_model=./saved_models/cifar10-60/model_best.pth.tar
+pretrained_model=./vgg_models/cifar60/model_best.pth.tar
 
 echo $PYTHON
 
@@ -50,7 +50,7 @@ $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --workers 1 --ngpu 1 \
     --print_freq 100 --decay 0.0003 --momentum 0.9 \
     --resume ${pretrained_model} \
-    --ic_only True
+    --ic_only True 
 
     # --clustering --lambda_coeff 1e-3    
 } &

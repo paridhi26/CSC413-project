@@ -28,7 +28,7 @@ optimizer=Adam
 
 label_info=binarized
 
-save_path=./save_finetune/
+save_path=./save_finetune/mnist30
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
@@ -39,8 +39,8 @@ echo $PYTHON
 
 ############### Neural network ############################
 {
-# srun -p csc413 --gres gpu \
-$PYTHON main --dataset ${dataset} --data_path ${data_path}   \
+srun -p csc413 --gres gpu \
+$PYTHON main --dataset ${dataset} --data_path ${data_path} \
     --arch ${model} --save_path ${save_path} \
     --epochs ${epochs} --learning_rate 0.0004 \
     --optimizer ${optimizer} \

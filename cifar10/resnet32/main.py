@@ -35,7 +35,7 @@ parser.add_argument('--data_path',
 parser.add_argument(
     '--dataset',
     type=str,
-    choices=['cifar10', 'cifar100', 'imagenet', 'svhn', 'stl10', 'mnist'],
+    choices=['cifar10', 'cifar100', 'imagenet', 'svhn', 'stl10', 'mnist', 'finetune_mnist'],
     help='Choose between Cifar10/100 and ImageNet.')
 parser.add_argument('--arch',
                     metavar='ARCH',
@@ -255,6 +255,9 @@ def main():
     elif args.dataset == 'mnist':
         mean = (0.5,)
         std = (0.5,)
+    elif args.dataset == 'finetune_mnist':
+        mean = [0.5, 0.5, 0.5]
+        std = [0.5, 0.5, 0.5]
     elif args.dataset == 'imagenet':
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
@@ -274,6 +277,22 @@ def main():
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])  # here is actually the validation dataset
+    elif args.dataset == 'finetune_mnist':
+        # Convert mnist to 3 channels
+        train_transform = transforms.Compose([
+            # convert to 3 channels
+            transforms.Resize(32),
+            transforms.RandomCrop(32, padding=4),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
     else:
         train_transform = transforms.Compose([
             transforms.Resize(32),
@@ -298,6 +317,16 @@ def main():
                                download=True)
         num_classes = 10
         num_channels = 1
+    elif args.dataset == 'finetune_mnist':
+        train_data = dset.MNIST(args.data_path,
+                                train=True,
+                                transform=train_transform,
+                                download=True)
+        test_data = dset.MNIST(args.data_path,
+                               train=False,
+                               transform=test_transform,
+                               download=True)
+        num_classes = 10
     elif args.dataset == 'cifar10':
         train_data = dset.CIFAR10(args.data_path,
                                   train=True,
@@ -434,8 +463,7 @@ def main():
             else:
                 checkpoint = torch.load(args.resume)#checkpoint_branch.pth.tar#model_best_def.pth.tar
             
-            #if not (args.fine_tune):
-            if True:
+            if not args.ic_only:
                 args.start_epoch = checkpoint['epoch']
                 # recorder = checkpoint['recorder']
                 optimizer.load_state_dict(checkpoint['optimizer'])
@@ -498,7 +526,7 @@ def main():
     print("Input shape:", input.shape)
     output_branch = net(input)
     num_branch = len(output_branch) # the number of branches
-    val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+    # val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
     #sys.exit()
     # update the step_size once the model is loaded. This is used for quantization.
     for m in net.modules():
@@ -619,11 +647,10 @@ def main():
             else:
                 for para in m.parameters():
                     para.requires_grad=False
-        for i in range(20):# simulate flip 30bits for model
-            adv_attack(attacker, net_flipped, net_clean, train_loader, test_loader,
-                            args.n_iter, log, writer, num_branch, csv_save_path=args.save_path,
-                            random_attack=args.random_bfa)
-        
+        for i in range(20):# simulate flip 20bits for model
+            adv_attack(attacker, net_flipped, net_clean, train_loader, test_loader, args.n_iter, log, writer, num_branch, csv_save_path=args.save_path,
+            random_attack=args.random_bfa)
+
     for epoch in range(args.start_epoch, args.epochs):
         count+=1
         # if count>1:
@@ -978,6 +1005,8 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
             break_acc = 2.0
         elif args.dataset == 'imagenet':
             break_acc = 0.2
+        else:
+            break_acc = 11.0
         if val_acc_top1 <= break_acc:
             break
         
