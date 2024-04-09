@@ -315,26 +315,28 @@ def main():
             transforms.Normalize(mean, std)
         ])
 
-    if args.aug_train and args.dataset == 'finetune_mnist':
+    initial_transforms = [
+        transforms.Resize(32),
+        transforms.RandomCrop(32, padding=4),
+        transforms.ToTensor()
+    ]
+    if args.dataset == 'finetune_mnist':
+        initial_transforms.append(transforms.Lambda(lambda x: x.repeat(3, 1, 1)))
+    if args.aug_train:
         # Augmented training
         # Insert random flip, rotation, translation, and color jitter
-        
-        train_transform = transforms.Compose([
-            transforms.Resize(32),
-            transforms.RandomCrop(32, padding=4),
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+        train_transform = transforms.Compose(initial_transforms + [
             transforms.Normalize(mean, std),
             transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
             transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
-            transforms.RandomHorizontalFlip(p=0.6),
+            transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomRotation(15),
             transforms.GaussianBlur(3),
-            transforms.RandomErasing(p=0.9, scale=(0.02, 0.1)),
+            transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
         ])
         # aug_valid is just the same, but with test_transform
-    if args.perturbed_valid and args.dataset == 'finetune_mnist':
-        test_transform = transforms.Compose([
+    if args.perturbed_valid:            
+        test_transform = transforms.Compose(initial_transforms + [
             transforms.Resize(32),
             transforms.RandomCrop(32, padding=4),
             transforms.ToTensor(),
@@ -342,10 +344,10 @@ def main():
             transforms.Normalize(mean, std),
             transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
             transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
-            transforms.RandomHorizontalFlip(p=0.6),
+            transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomRotation(15),
             transforms.GaussianBlur(3),
-            transforms.RandomErasing(p=0.9, scale=(0.2, 0.3)),
+            transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
         ])
 
 
