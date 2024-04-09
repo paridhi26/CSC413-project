@@ -305,6 +305,19 @@ def main():
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
+
+    if args.aug_train:
+        # Augmented training
+        # Insert random flip, rotation, translation, and color jitter
+        train_transform.transforms.insert(0, transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1))
+        train_transform.transforms.insert(0, transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)))
+        train_transform.transforms.insert(0, transforms.RandomHorizontalFlip())
+        train_transform.transforms.insert(0, transforms.RandomRotation(5))
+        train_transform.transforms.insert(0, transforms.GaussianBlur(3))
+        # aug_valid is just the same, but with test_transform
+
+
+    
     num_channels = 3
     if args.dataset == 'mnist':
         train_data = dset.MNIST(args.data_path,
@@ -1143,6 +1156,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+
 
         loss2 = loss
         # measure accuracy and record loss
