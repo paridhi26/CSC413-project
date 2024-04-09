@@ -8,7 +8,7 @@ import torch.backends.cudnn as cudnn
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 from utils import AverageMeter, RecorderMeter, time_string, convert_secs2time, clustering_loss, change_quan_bitwidth, vote_for_predict
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import models
 from models.quantization import quan_Conv2d, quan_Linear, quantize
 
@@ -35,7 +35,7 @@ parser.add_argument('--data_path',
 parser.add_argument(
     '--dataset',
     type=str,
-    choices=['cifar10', 'cifar100', 'imagenet', 'svhn', 'stl10', 'mnist'],
+    choices=['cifar10', 'cifar100', 'imagenet', 'svhn', 'stl10', 'mnist', 'finetune_mnist'],
     help='Choose between Cifar10/100 and ImageNet.')
 parser.add_argument('--arch',
                     metavar='ARCH',
@@ -190,10 +190,11 @@ parser.add_argument('--weight', default='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
                       help='weight')
 args = parser.parse_args()
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-if args.ngpu == 1:
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(
-        args.gpu_id)  # make only device #gpu_id visible, then
-
+# if args.ngpu == 1:
+#     os.environ["CUDA_VISIBLE_DEVICES"] = str(
+#         args.gpu_id)  # make only device #gpu_id visible, then
+assert args.ngpu == 1, "Only support single GPU."
+assert torch.cuda.is_available(), "CUDA is not available."
 args.use_cuda = args.ngpu > 0 and torch.cuda.is_available()  # check GPU
 
 # Give a random seed if no manual configuration
@@ -206,6 +207,9 @@ if args.use_cuda:
     torch.cuda.manual_seed_all(args.manualSeed)
 
 cudnn.benchmark = True
+
+import signal
+signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 ###############################################################################
 ###############################################################################
@@ -251,6 +255,9 @@ def main():
         mean = [0.5, 0.5, 0.5]
         std = [0.5, 0.5, 0.5]
     elif args.dataset == 'mnist':
+        mean = (0.5,)
+        std = (0.5,)
+    elif args.dataset == 'finetune_mnist':
         mean = [0.5, 0.5, 0.5]
         std = [0.5, 0.5, 0.5]
     elif args.dataset == 'imagenet':
@@ -272,6 +279,22 @@ def main():
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])  # here is actually the validation dataset
+    elif args.dataset == 'finetune_mnist':
+        # Convert mnist to 3 channels
+        train_transform = transforms.Compose([
+            # convert to 3 channels
+            transforms.Resize(32),
+            transforms.RandomCrop(32, padding=4),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
     else:
         train_transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
@@ -279,11 +302,23 @@ def main():
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
-        test_transform = transforms.Compose(
-            [transforms.ToTensor(),
-             transforms.Normalize(mean, std)])
-
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)])
+    num_channels = 3
     if args.dataset == 'mnist':
+        train_data = dset.MNIST(args.data_path,
+                                train=True,
+                                transform=train_transform,
+                                download=True)
+        test_data = dset.MNIST(args.data_path,
+                               train=False,
+                               transform=test_transform,
+                               download=True)
+        num_classes = 10
+        num_channels = 1
+    elif args.dataset == 'finetune_mnist':
         train_data = dset.MNIST(args.data_path,
                                 train=True,
                                 transform=train_transform,
@@ -357,8 +392,8 @@ def main():
     print_log("=> creating model '{}'".format(args.arch), log)
 
     # Init model, criterion, and optimizer
-    net = models.__dict__[args.arch](num_classes)
-    print_log("=> network :\n {}".format(net), log)
+    net = models.__dict__[args.arch](num_classes, num_channels)
+    # print_log("=> network :\n {}".format(net), log)
     if args.use_cuda:
         if args.ngpu > 1:
             net = torch.nn.DataParallel(net, device_ids=list(range(args.ngpu)))
@@ -423,13 +458,13 @@ def main():
                 #checkpoint = torch.load('/home/wangjialai/copy_for_use/flip_attack/old_cifar/BFA_branch_stage2/save_backup/cifar10_resnet20_quan_160_SGD_binarized/model_best.pth.tar')
             
             else:
-                checkpoint = torch.load('./save/model_best.pth.tar')#checkpoint_branch.pth.tar#model_best_def.pth.tar
+                checkpoint = torch.load(args.resume)#checkpoint_branch.pth.tar#model_best_def.pth.tar
             
             #if not (args.fine_tune):
-            if True:
-                args.start_epoch = 0#checkpoint['epoch']
-                recorder = checkpoint['recorder']
-                #optimizer.load_state_dict(checkpoint['optimizer'])
+            if not args.ic_only:
+                args.start_epoch = checkpoint['epoch']
+                # recorder = checkpoint['recorder']
+                optimizer.load_state_dict(checkpoint['optimizer'])
 
             state_tmp = net.state_dict()
             if 'state_dict' in checkpoint.keys():
@@ -486,10 +521,11 @@ def main():
             input = input.cuda()
         break 
     
+    print("Input shape:", input.shape)
     output_branch = net(input)
     num_branch = len(output_branch) # the number of branches
     
-    val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+    # val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
     #sys.exit()
     # update the step_size once the model is loaded. This is used for quantization.
     for m in net.modules():
@@ -577,19 +613,18 @@ def main():
     start_time = time.time()
     epoch_time = AverageMeter()
     
-    val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
     print("epoch :", args.start_epoch, args.epochs)
     count=0
     is_best_defense_best=0
     is_best_defense=0
-    if args.resume:
-        # for item in filter(lambda param: param.requires_grad, net.parameters()):
-        #     print("item:", item.name)
+    # if args.resume:
+    #     # for item in filter(lambda param: param.requires_grad, net.parameters()):
+    #     #     print("item:", item.name)
         
-        optimizer = torch.optim.Adam(filter(lambda param: param.requires_grad,
-                                            net.parameters()),
-                                     lr=0.01,
-                                     weight_decay=0.0005)
+    #     optimizer = torch.optim.Adam(filter(lambda param: param.requires_grad,
+    #                                         net.parameters()),
+    #                                  lr=0.01,
+    #                                  weight_decay=0.0005)
     net_flipped = 0
     # block for weight reset
     if args.adv_train: # adv train robust ic
@@ -613,7 +648,7 @@ def main():
             else:
                 for para in m.parameters():
                     para.requires_grad=False
-        for i in range(10):# simulate flip 30bits for model
+        for i in range(20):# simulate flip 20bits for model
             adv_attack(attacker, net_flipped, net_clean, train_loader, test_loader,
                             args.n_iter, log, writer, num_branch, csv_save_path=args.save_path,
                             random_attack=args.random_bfa)
@@ -632,12 +667,15 @@ def main():
         need_time = '[Need: {:02d}:{:02d}:{:02d}]'.format(
             need_hour, need_mins, need_secs)
 
-        print_log(
-            '\n==>>{:s} [Epoch={:03d}/{:03d}] {:s} [LR={:6.4f}][M={:1.2f}]'.format(time_string(), epoch, args.epochs,
-                                                                                   need_time, current_learning_rate,
-                                                                                   current_momentum) \
-            + ' [Best : Accuracy={:.2f}, Error={:.2f}]'.format(recorder.max_accuracy(False),
-                                                               100 - recorder.max_accuracy(False)), log)
+        if epoch > 0:
+            print_log(
+                '\n==>>{:s} [Epoch={:03d}/{:03d}] {:s} [LR={:6.4f}][M={:1.2f}]'.format(time_string(), epoch, args.epochs,
+                        need_time, current_learning_rate,
+                        current_momentum) \
+                + ' [Best : Accuracy={:.2f}, Error={:.2f}]'.format(
+                    recorder.max_accuracy(False),
+                    100 - recorder.max_accuracy(False)),
+                log)
 
         
         # train for one epoch
@@ -781,7 +819,7 @@ def validate2(val_loader, model, criterion, log, num_branch, ic_only, summary_ou
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
 
             # compute output
@@ -861,7 +899,7 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
     #count_break = random.randint(0, 30)
     for _, (data, target) in enumerate(train_loader):
         if args.use_cuda:
-            target = target.cuda(async=True)
+            target = target.cuda(non_blocking=True)
             data = data.cuda()
         # data = data[0]
         # data = torch.unsqueeze(data, axis=0) 
@@ -967,6 +1005,8 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
             break_acc = 2.0
         elif args.dataset == 'imagenet':
             break_acc = 0.2
+        else:
+            break_acc = 11.0
         if val_acc_top1 <= break_acc:
             break
         
@@ -995,7 +1035,7 @@ def adv_attack(attacker, model, model_clean, train_loader, test_loader,
     count=0
     for _, (data, target) in enumerate(train_loader):
         if args.use_cuda:
-            target = target.cuda(async=True)
+            target = target.cuda(non_blocking=True)
             data = data.cuda()
         # Override the target to prevent label leaking
         _, target = model(data)[-1].data.max(1)
@@ -1039,7 +1079,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
 
         if args.use_cuda:
             target = target.cuda(
-                async=True
+                non_blocking=True
             )  # the copy will be asynchronous with respect to the host.
             input = input.cuda()
 
@@ -1069,7 +1109,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
 
         loss = 0
         
-        if args.resume:
+        if ic_only:
             for idx in range(len(output_branch)-1):
                 loss += w[idx] * criterion(output_branch[idx], target)
         else:
@@ -1091,7 +1131,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
             inner_out = net_flipped.flip_outputs(input)
             flipped_out = model.adv_outputs(inner_out)
             # print("length::", len(flipped_out)-1, len(output_branch)-1)
-            if args.resume:
+            if ic_only:
                 for idx in range(len(flipped_out)-1):
                     #print("flipped_out[idx]", flipped_out[idx], flipped_out[idx].shape)
                     loss += w[idx] * criterion(flipped_out[idx], target)
@@ -1219,7 +1259,7 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
         top5_list.append(AverageMeter())
 
 
-
+    print("Validating...")
     # switch to evaluate mode
     model.eval()
     output_summary = [] # init a list for output summary
@@ -1227,7 +1267,7 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
 
             # compute output
@@ -1337,9 +1377,9 @@ def get_msd_T(args, test_loader, model):
     index = 0   
     for i, (input, target) in enumerate(test_loader):
         if args.use_cuda:
-            #target = target.cuda(async=True)
+            #target = target.cuda(non_blocking=True
             input = input.cuda()
-        target = target.squeeze().long().cuda(async=True)
+        target = target.squeeze().long().cuda(non_blocking=True)
         target_var = Variable(target, volatile=True)
         input_var = Variable(input, volatile=True)
 
@@ -1461,7 +1501,7 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
-                target = target.cuda(async=True)
+                target = target.cuda(non_blocking=True)
                 input = input.cuda()
             target_var = Variable(target, volatile=True)
         
@@ -1479,8 +1519,8 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
             num_c = 3#6 # the number of branches 
             branch_index = list(range(0, num_branch))#num_branch
             for j in range(input.size(0)):
-                #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
-                tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda(async=True)
+                #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(non_blocking=True)
+                tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda(non_blocking=True)
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
                 pre_index = random.sample(branch_index, num_c) # randomly selected index
                 #pre_index = random.sample(index_list[0:], num_c) # randomly selected index

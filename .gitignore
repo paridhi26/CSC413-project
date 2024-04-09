@@ -6,3 +6,21 @@ logs/
 # Ignore data
 **/data/
 **/save
+**/evaluation_saves
+**/saved_models
+**/save_finetune
+**/vgg_models
+**/save_woROB
+
+# ignore folders 
+__pycache__/
+.vscode
+benchmark/
+
+models/__pycache__/
+
+# Ignore tmp.pth files in any directory
+**/tmp.pth
+
+# Ignore pyc files
+*.pyc

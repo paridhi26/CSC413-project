@@ -21,14 +21,14 @@ DATE=`date +%Y-%m-%d`
 enable_tb_display=false # enable tensorboard display
 model=resnet32_quan
 dataset=cifar10
-epochs=5
-train_batch_size=64
-test_batch_size=64
+epochs=60
+train_batch_size=128
+test_batch_size=128
 optimizer=Adam
 
 label_info=binarized
 
-save_path=./save/
+save_path=./saved_models/cifar10-60/
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
@@ -41,13 +41,14 @@ echo $PYTHON
 srun -p csc413 --gres gpu \
 $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --arch ${model} --save_path ${save_path} \
-    --epochs ${epochs} --learning_rate 0.01 \
+    --epochs ${epochs} --learning_rate 0.0004 \
     --optimizer ${optimizer} \
 	--schedule 80 120  --gammas 0.1 0.1 \
     --attack_sample_size ${train_batch_size} \
     --test_batch_size ${test_batch_size} \
-    --workers 1 --ngpu 1 --gpu_id 2 \
-    --print_freq 100 --decay 0.0003 --momentum 0.9 \
+    --workers 1 --ngpu 1 \
+    --print_freq 100 --decay 0.0003 --momentum 0.9
+    # --resume ./saved_models/cifar10-15/model_best.pth.tar
     # --ic_only #default false
     #--bfa_mydefense
     # --clustering --lambda_coeff 1e-3    

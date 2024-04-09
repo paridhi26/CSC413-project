@@ -103,13 +103,13 @@ class CifarResNet(nn.Module):
   ResNet optimized for the Cifar dataset, as specified in
   https://arxiv.org/abs/1512.03385.pdf
   """
-    def __init__(self, block, depth, num_classes):
+    def __init__(self, block, depth, num_classes, num_channels):
         """ Constructor
     Args:
       block: ResNetBasicblock
       depth: number of layers.
       num_classes: number of classes
-      base_width: base width
+      num_channels: number of channels
     """
         super(CifarResNet, self).__init__()
 
@@ -122,7 +122,7 @@ class CifarResNet(nn.Module):
 
         self.num_classes = num_classes
 
-        self.conv_1_3x3 = quan_Conv2d(3, # number of channels, to change.
+        self.conv_1_3x3 = quan_Conv2d(num_channels, 
                                     16,
                                     kernel_size=3,
                                     stride=1,
@@ -227,46 +227,46 @@ class CifarResNet(nn.Module):
       return outputs
 
 
-def resnet20_quan(num_classes=10):
+def resnet20_quan(num_classes=10, num_channels=3):
     """Constructs a ResNet-20 model for CIFAR-10 (by default)
   Args:
     num_classes (uint): number of classes
   """
-    model = CifarResNet(ResNetBasicblock, 20, num_classes)
+    model = CifarResNet(ResNetBasicblock, 20, num_classes, num_channels)
     return model
 
 
-def resnet32_quan(num_classes=10):
+def resnet32_quan(num_classes=10, num_channels=3):
     """Constructs a ResNet-32 model for CIFAR-10 (by default)
   Args:
     num_classes (uint): number of classes
   """
-    model = CifarResNet(ResNetBasicblock, 32, num_classes)
+    model = CifarResNet(ResNetBasicblock, 32, num_classes, num_channels)
     return model
 
 
-def resnet44_quan(num_classes=10):
+def resnet44_quan(num_classes=10, num_channels=3):
     """Constructs a ResNet-44 model for CIFAR-10 (by default)
   Args:
     num_classes (uint): number of classes
   """
-    model = CifarResNet(ResNetBasicblock, 44, num_classes)
+    model = CifarResNet(ResNetBasicblock, 44, num_classes, num_channels)
     return model
 
 
-def resnet56_quan(num_classes=10):
+def resnet56_quan(num_classes=10, num_channels=3):
     """Constructs a ResNet-56 model for CIFAR-10 (by default)
   Args:
     num_classes (uint): number of classes
   """
-    model = CifarResNet(ResNetBasicblock, 56, num_classes)
+    model = CifarResNet(ResNetBasicblock, 56, num_classes, num_channels)
     return model
 
 
-def resnet110_quan(num_classes=10):
+def resnet110_quan(num_classes=10, num_channels=3):
     """Constructs a ResNet-110 model for CIFAR-10 (by default)
   Args:
     num_classes (uint): number of classes
   """
-    model = CifarResNet(ResNetBasicblock, 110, num_classes)
+    model = CifarResNet(ResNetBasicblock, 110, num_classes, num_channels)
     return model

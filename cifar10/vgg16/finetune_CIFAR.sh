@@ -19,8 +19,8 @@ DATE=`date +%Y-%m-%d`
 
 ############### Configurations ########################
 enable_tb_display=false # enable tensorboard display
-model=resnet32_quan
-dataset=mnist
+model=vgg16_quan
+dataset=finetune_mnist
 epochs=30
 train_batch_size=128
 test_batch_size=128
@@ -28,12 +28,13 @@ optimizer=Adam
 
 label_info=binarized
 
-save_path=./saved_models/mnist30
+save_path=./save_woROB/cifar60
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
 data_path='./data'
-    
+pretrained_model=./vgg_models/cifar60/model_best.pth.tar
+
 echo $PYTHON
 
 ############### Neural network ############################
@@ -47,10 +48,10 @@ $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --attack_sample_size ${train_batch_size} \
     --test_batch_size ${test_batch_size} \
     --workers 1 --ngpu 1 \
-    --print_freq 100 --decay 0.0003 --momentum 0.9
-    # --resume ./saved_models/mnist25/model_best.pth.tar
-    # --ic_only #default false
-    #--bfa_mydefense
+    --print_freq 100 --decay 0.0003 --momentum 0.9 \
+    --resume ${pretrained_model} \
+    --ic_only True 
+
     # --clustering --lambda_coeff 1e-3    
 } &
 ############## Tensorboard logging ##########################

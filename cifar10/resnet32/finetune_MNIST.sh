@@ -28,18 +28,19 @@ optimizer=Adam
 
 label_info=binarized
 
-save_path=./saved_models/mnist30
+save_path=./save_finetune/mnist30
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
 data_path='./data'
-    
+pretrained_model=./saved_models/mnist30/model_best.pth.tar
+
 echo $PYTHON
 
 ############### Neural network ############################
 {
 srun -p csc413 --gres gpu \
-$PYTHON main --dataset ${dataset} --data_path ${data_path}   \
+$PYTHON main --dataset ${dataset} --data_path ${data_path} \
     --arch ${model} --save_path ${save_path} \
     --epochs ${epochs} --learning_rate 0.0004 \
     --optimizer ${optimizer} \
@@ -47,10 +48,11 @@ $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --attack_sample_size ${train_batch_size} \
     --test_batch_size ${test_batch_size} \
     --workers 1 --ngpu 1 \
-    --print_freq 100 --decay 0.0003 --momentum 0.9
-    # --resume ./saved_models/mnist25/model_best.pth.tar
-    # --ic_only #default false
-    #--bfa_mydefense
+    --print_freq 100 --decay 0.0003 --momentum 0.9 \
+    --resume ${pretrained_model} \
+    --ic_only True \
+    --adv_train
+
     # --clustering --lambda_coeff 1e-3    
 } &
 ############## Tensorboard logging ##########################
