@@ -26,21 +26,29 @@ fi
 
 ############### Configurations ########################
 enable_tb_display=false # enable tensorboard display
-model=vanilla_resnet20
+model=resnet32_quan
 dataset=mnist
-epochs=160
+epochs=30
 train_batch_size=128
-test_batch_size=100
-optimizer=SGD
+valid_batch_size=128
+test_batch_size=128
+optimizer=Adam
 
-label_info=new_exp
+label_info=binarized
 
 attack_sample_size=128 # number of data used for BFA
 n_iter=3 # number of iteration to perform BFA
 k_top=10 # only check k_top weights with top gradient ranking in each layer
 
+save_path=./saved_models/valid/mnist30
+tb_path=${save_path}/tb_log  #tensorboard log path
+    
+echo $PYTHON
+PYTHON="python3 -m"
+data_path='./data'
+pretrained_model=./saved_models/mnist30/model_best.pth.tar
 
-save_path=./save/${DATE}/${dataset}_${model}_${label_info}
+save_path=./saved_models/valid/mnist30
 tb_path=./save/${DATE}/${dataset}_${model}_${label_info}/tb_log  #tensorboard log path
 
 # set the pretrained model path
