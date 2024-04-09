@@ -1082,11 +1082,11 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
         # parser.add_argument('--weight', default='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1', 
                     #   help='weight')
         # Perhaps this is used for IC training??
-        # if args.resume:
-        #     for idx in range(len(output_branch)-1):
-        #         loss += w[idx] * criterion(output_branch[idx], target)
-        # else:
-        loss = criterion(output_branch[-1], target)
+        if ic_only:
+            for idx in range(len(output_branch)-1):
+                loss += w[idx] * criterion(output_branch[idx], target)
+        else:
+            loss = criterion(output_branch[-1], target)
         
 
         if args.clustering:
@@ -1098,13 +1098,13 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
         optimizer.step()
         optimizer.zero_grad()
 
-        if args.adv_train:#adv train
+        if args.adv_train:#adv train = ROBUST IC
             loss = 0
             
             inner_out = net_flipped.flip_outputs(input)
             flipped_out = model.adv_outputs(inner_out)
             # print("length::", len(flipped_out)-1, len(output_branch)-1)
-            if args.resume:
+            if ic_only:
                 for idx in range(len(flipped_out)-1):
                     #print("flipped_out[idx]", flipped_out[idx], flipped_out[idx].shape)
                     loss += w[idx] * criterion(flipped_out[idx], target)
