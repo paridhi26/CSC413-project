@@ -28,18 +28,18 @@ optimizer=Adam
 
 label_info=binarized
 
-save_path=./save_woROB/cifar60
+save_path=./save_aug/cifar60
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
 data_path='./data'
-pretrained_model=./saved_models/cifar10-60/model_best.pth.tar
+pretrained_model=./save_woROB/cifar60/model_best.pth.tar
 
 echo $PYTHON
 
 ############### Neural network ############################
 {
-srun -p csc413 --gres gpu \
+sbatch -p csc413 --gres gpu \
 $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --arch ${model} --save_path ${save_path} \
     --epochs ${epochs} --learning_rate 0.0004 \
@@ -51,7 +51,7 @@ $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --print_freq 100 --decay 0.0003 --momentum 0.9 \
     --resume ${pretrained_model} \
     --ic_only True \
-    --aug_train --perturbed_valid
+    --aug_train
 
     # --clustering --lambda_coeff 1e-3    
 } &

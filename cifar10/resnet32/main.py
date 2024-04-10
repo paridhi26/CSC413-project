@@ -330,24 +330,20 @@ def main():
             transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
             transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
             transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomRotation(15),
+            transforms.RandomRotation(5),
             transforms.GaussianBlur(3),
-            transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
+            # transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
         ])
         # aug_valid is just the same, but with test_transform
     if args.perturbed_valid:            
         test_transform = transforms.Compose(initial_transforms + [
-            transforms.Resize(32),
-            transforms.RandomCrop(32, padding=4),
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
             transforms.Normalize(mean, std),
             transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
             transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
             transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomRotation(15),
+            transforms.RandomRotation(5),
             transforms.GaussianBlur(3),
-            transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
+            # transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
         ])
 
 
@@ -694,7 +690,7 @@ def main():
         #                                     header=['top-1 output'], index=False)
         val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
         
-    sys.exit()
+        sys.exit()
 
     # Main loop
     start_time = time.time()
