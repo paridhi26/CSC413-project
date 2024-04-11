@@ -1,0 +1,94 @@
+DATASET: finetune_mnist
+
+ARCH: resnet32_quan
+
+SEED: 42
+
+BATCH_SIZE: 1
+
+use_cuda: True
+
+device: cuda
+
+NUM_CHANNELS: 3
+
+NUM_CLASSES: 10
+
+MEAN: (0.5,)
+
+STD: (0.5,)
+
+chk_path: ./save_woROB/cifar60/model_best.pth.tar
+
+weight: 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+
+save_path: ./save_adversarial/save_woROB
+
+Running for epsilon: 0.05
+Validation batch: 0
+Validation batch: 500
+Validation batch: 1000
+Validation batch: 1500
+Validation batch: 2000
+Validation batch: 2500
+Validation batch: 3000
+Validation batch: 3500
+Validation batch: 4000
+Validation batch: 4500
+Validation batch: 5000
+Validation batch: 5500
+Validation batch: 6000
+Validation batch: 6500
+Validation batch: 7000
+Validation batch: 7500
+Validation batch: 8000
+Validation batch: 8500
+Validation batch: 9000
+Validation batch: 9500
+Epsilon: 0.05	Test Accuracy = 8971 / 10000 = 0.8971
+Running for epsilon: 0.1
+Validation batch: 0
+Validation batch: 500
+Validation batch: 1000
+Validation batch: 1500
+Validation batch: 2000
+Validation batch: 2500
+Validation batch: 3000
+Validation batch: 3500
+Validation batch: 4000
+Validation batch: 4500
+Validation batch: 5000
+Validation batch: 5500
+Validation batch: 6000
+Validation batch: 6500
+Validation batch: 7000
+Validation batch: 7500
+Validation batch: 8000
+Validation batch: 8500
+Validation batch: 9000
+Validation batch: 9500
+Epsilon: 0.1	Test Accuracy = 4930 / 10000 = 0.493
+Running for epsilon: 0.15
+Validation batch: 0
+Validation batch: 500
+Validation batch: 1000
+Validation batch: 1500
+Validation batch: 2000
+Validation batch: 2500
+Validation batch: 3000
+Validation batch: 3500
+Validation batch: 4000
+Validation batch: 4500
+Validation batch: 5000
+Validation batch: 5500
+Validation batch: 6000
+Validation batch: 6500
+Validation batch: 7000
+Validation batch: 7500
+Validation batch: 8000
+Validation batch: 8500
+Validation batch: 9000
+Validation batch: 9500
+Epsilon: 0.15	Test Accuracy = 1917 / 10000 = 0.1917
+Accuracies: [0.8971, 0.493, 0.1917]
+
