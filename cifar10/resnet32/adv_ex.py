@@ -9,32 +9,34 @@ from models.quantization import quan_Conv2d, quan_Linear, quantize
 from utils import AverageMeter, RecorderMeter
 import torch.nn.functional as F
 from collections import Counter
+import os, sys
+import argparse
 
-root = './data'
-download = True
-DATASET = 'finetune_mnist'
-data_path = './data'
-ARCH = "resnet32_quan"
-chk_path = './save_finetune/cifar60/model_best.pth.tar'
+# Constants
 BATCH_SIZE = 1
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-use_cuda = torch.cuda.is_available()
-save_path = './save_adversarial'
-SEED = 42
+use_cuda = True
+device = torch.device("cuda" if use_cuda and torch.cuda.is_available() else "cpu")
 NUM_CHANNELS = 3
 NUM_CLASSES = 10
 MEAN, STD = (0.5,), (0.5,)
 weight='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1'
 w = [float(i) for i in weight.split(',')]
 
-random.seed(SEED)
-torch.manual_seed(SEED)
-
-if use_cuda:
-    torch.cuda.manual_seed_all(SEED)
 
 import signal
 signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
+    parser.add_argument('--dataset', default='finetune_mnist', type=str, help='dataset')
+    parser.add_argument('--data_path', default='./data', type=str, help='data path')
+    parser.add_argument('--arch', default='resnet32_quan', type=str, help='architecture')
+    parser.add_argument('--chk_path', default='./save_finetune/cifar60/model_best.pth.tar', type=str, help='checkpoint path')
+    parser.add_argument('--save_path', default='./save_adversarial/', type=str, help='save path')
+    parser.add_argument('--seed', default=42, type=int, help='seed')
+    args = parser.parse_args()
+    return args
+
 
 def load_test_data():
 
@@ -114,36 +116,32 @@ def accuracy(output, target, topk=(1, )):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
-def _get_avg(lst):
-    sum = 0
-    for item in lst:
-        sum += item.avg
-    return sum/len(lst)
 
 def denorm(batch):
     # Tensor-ize mean and std
     if not isinstance(MEAN, torch.Tensor):
-        MEAN = torch.tensor(MEAN).view(1, 3, 1, 1)
+        mean = torch.tensor(MEAN).view(1, -1, 1, 1)
     if not isinstance(STD, torch.Tensor):
-        STD = torch.tensor(STD).view(1, 3, 1, 1)
+        std = torch.tensor(STD).view(1, -1, 1, 1)
     if use_cuda:
-        MEAN = MEAN.cuda()
-        STD = STD.cuda()
-    return batch * STD + MEAN
+        mean = mean.to(device)
+        std = std.to(device)
+    return batch * std + mean
 
-def fgsm_sequence(model, data, target, output_branch, adv_examples, epsilon, threshold=0.9):
+def fgsm_sequence(model, data, target, output_branch, adv_examples, epsilon):
     correct = 0
     loss = 0
     # Get mode prediction
     prediction_counts = Counter()
     for idx in range(len(output_branch)):
         loss += w[idx] * F.cross_entropy(output_branch[idx], target)
-        _, preds = torch.argmax(output_branch[idx], 1)
+        preds = torch.argmax(output_branch[idx], 1)
         prediction_counts[preds.item()] += 1
     
     # Get the mode prediction
     mode_prediction = max(prediction_counts, key=prediction_counts.get)
     
+    # Very important!!
     model.zero_grad()
     loss.backward()
 
@@ -152,121 +150,76 @@ def fgsm_sequence(model, data, target, output_branch, adv_examples, epsilon, thr
 
     perturbed_data = data_denorm + epsilon * data_grad.sign()
     perturbed_data = torch.clamp(perturbed_data, 0, 1)
-    perturbed_data = (perturbed_data - MEAN) / STD
+    perturbed_data = transforms.Normalize(MEAN, STD)(perturbed_data)
 
-    top1_list = []
     perturbed_prediction_counts = Counter()
     perturbed_output = model(perturbed_data)
     for idx in range(len(perturbed_output)):
         prec1, prec5 = accuracy(perturbed_output[idx].data, target, topk=(1, 5))
         perturbed_prediction_counts[torch.argmax(perturbed_output[idx], 1).item()] += 1
-        top1_list.append(prec1)
 
     # Most common prediction
     mode_fin_prediction = max(perturbed_prediction_counts, key=perturbed_prediction_counts.get)
-    top_1_avg = 0
-    for item in top1_list:
-        top_1_avg += item
-    top_1_avg /= len(top1_list)
 
-    # TODO: Add the mode prediction to get a sense of the change in prediction
-    if top_1_avg > threshold:
+    if mode_fin_prediction == target.item():
         correct += 1
         # Special case for saving 0 epsilon examples
         if epsilon == 0 and len(adv_examples) < 5:
             adv_ex = perturbed_data.squeeze().detach().cpu().numpy()
-            adv_examples.append((mode_prediction.item(), mode_fin_prediction.item(), adv_ex))
+            adv_examples.append((mode_prediction, mode_fin_prediction, adv_ex))
     else:
         # Save some adv examples for visualization later
         if len(adv_examples) < 5:
             adv_ex = perturbed_data.squeeze().detach().cpu().numpy()
-            adv_examples.append((mode_prediction.item(), mode_fin_prediction.item(), adv_ex))
+            adv_examples.append((mode_prediction, mode_fin_prediction, adv_ex))
     
     return correct
 
 
-def validate(val_loader, model, num_branch, ic_only, epsilon=0.1, threshold=0.9):
-    top1 = AverageMeter()
-    top5 = AverageMeter()
+def validate(val_loader, model, log, epsilon=0.1):
 
     print("Validating...")
-
-    top1_list = []
-    for idx in range(num_branch):
-        top1_list.append(AverageMeter())
-    top5_list = []
-    for idx in range(num_branch):
-        top5_list.append(AverageMeter())
 
     # switch to evaluate mode
     model.eval()
     total_correct = 0
     adv_examples = []
-
-    with torch.no_grad():
-        for i, (input, target) in enumerate(val_loader):
-            if use_cuda:
-                target = target.cuda(non_blocking=True)
-                input = input.cuda()
-            
-            # For adversarial examples
-            input.requires_grad = True
-
-            # compute output
-            output_branch = model(input)
-            # measure accuracy and record loss
-            #prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-            
-            for idx in range(len(output_branch)):
-                prec1, prec5 = accuracy(output_branch[idx].data, target, topk=(1, 5))
-                # print(f"Branch {idx} Prec@1: {prec1.item()} Prec@5: {prec5.item()}")
-                # print("Output branch w/o data: ", output_branch[idx])
-                top1_list[idx].update(prec1, input.size(0)) 
-                top5_list[idx].update(prec5, input.size(0))
-
-            if ic_only:
-                top1_avg = _get_avg(top1_list[:-1])
-                top5_avg = _get_avg(top5_list[:-1])
-            else:
-                top1_avg = top1_list[-1].avg
-                top5_avg = top5_list[-1].avg
-            if top1_avg > threshold * 100:
-                total_correct += fgsm_sequence(model, input, target, output_branch, adv_examples, epsilon, threshold)
-
-        final_acc = total_correct/float(len(val_loader))
-        print(f"Epsilon: {epsilon}\tTest Accuracy = {total_correct} / {len(val_loader)} = {final_acc}")  
-
-        print(
-        '  **Test** Prec_B1@1 {top1_b1.avg:.3f} Prec_B1@5 {top5_b1.avg:.3f} Error@1 {error1:.3f}'
-        '  **Test** Prec_B2@1 {top1_b2.avg:.3f} Prec_B2@5 {top5_b2.avg:.3f} Error@1 {error2:.3f}'
-        '  **Test** Prec_B3@1 {top1_b3.avg:.3f} Prec_B3@5 {top5_b3.avg:.3f} Error@1 {error3:.3f}'
-        '  **Test** Prec_B4@1 {top1_b4.avg:.3f} Prec_B4@5 {top5_b4.avg:.3f} Error@1 {error4:.3f}'
-        '  **Test** Prec_B5@1 {top1_b5.avg:.3f} Prec_B5@5 {top5_b5.avg:.3f} Error@1 {error5:.3f}'
-        '  **Test** Prec_B6@1 {top1_b6.avg:.3f} Prec_B6@5 {top5_b6.avg:.3f} Error@1 {error6:.3f}'
-        '  **Test** Prec_Bmain@1 {top1_main.avg:.3f} Prec_Bmain@5 {top5_main.avg:.3f} Error@1 {errormain:.3f}'
-        .format(top1_b1=top1_list[0], top5_b1=top5_list[0], error1=100 - top1_list[0].avg,
-                top1_b2=top1_list[1], top5_b2=top5_list[1], error2=100 - top1_list[1].avg,
-                top1_b3=top1_list[2], top5_b3=top5_list[2], error3=100 - top1_list[2].avg,
-                top1_b4=top1_list[3], top5_b4=top5_list[3], error4=100 - top1_list[3].avg,
-                top1_b5=top1_list[4], top5_b5=top5_list[4], error5=100 - top1_list[4].avg,
-                top1_b6=top1_list[5], top5_b6=top5_list[5], error6=100 - top1_list[5].avg,
-                top1_main=top1_list[-1], top5_main=top5_list[-1], errormain=100 - top1_list[-1].avg,
-        ))
+    # NOTE: There is no torch.no_grad() here because we need the gradients for FGSM
+    # Also note how we do model.zero_grad() before the loss.backward() in the FGSM function
+    for i, (input, target) in enumerate(val_loader):
+        if i % 500 == 0:
+            print_log(f"Validation batch: {i}", log)
+        if use_cuda:
+            target = target.to(device)
+            input = input.to(device)
         
-    sum=0
-    if ic_only: #if only train ic branch
-        for item in top1_list[:-1]:
-            sum += item.avg
-        top1_avg = sum/len(top1_list[:-1])
-        sum=0
-        for item in top5_list[:-1]:
-            sum += item.avg
-        top5_avg = sum/len(top5_list[:-1])
-    else:
-        top1_avg = top1_list[-1].avg
-        top5_avg = top5_list[-1].avg
+        # For adversarial examples
+        input.requires_grad = True
 
-    return top1_avg, top5_avg, final_acc, adv_examples
+        # compute output
+        output_branch = model(input)
+        # measure accuracy and record loss
+        prediction_counts = Counter()   
+        for idx in range(len(output_branch)):
+            # prec1, prec5 = accuracy(output_branch[idx].data, target, topk=(1, 5))
+            # print(f"Branch {idx} Prec@1: {prec1.item()} Prec@5: {prec5.item()}")
+            # print("Output branch w/o data: ", output_branch[idx])
+            preds = torch.argmax(output_branch[idx], 1)
+            prediction_counts[preds.item()] += 1
+        
+        # Get the mode prediction
+        mode_prediction = max(prediction_counts, key=prediction_counts.get)
+        
+        # If correct, then do FGSM
+        if mode_prediction == target.item():
+            total_correct += fgsm_sequence(model, input, target, output_branch, adv_examples, epsilon) if epsilon > 0 else 1
+        # if i > 10:
+        #     break
+
+    final_acc = total_correct/float(len(val_loader))
+    print_log(f"Epsilon: {epsilon}\tTest Accuracy = {total_correct} / {len(val_loader)} = {final_acc}", log) 
+        
+    return final_acc, adv_examples
 
 def plot_adv_examples(epsilons, examples):
     cnt = 0
@@ -281,38 +234,80 @@ def plot_adv_examples(epsilons, examples):
                 plt.ylabel(f"Eps: {epsilons[i]}", fontsize=14)
             orig,adv,ex = examples[i][j]
             plt.title(f"{orig} -> {adv}")
+            ex = np.transpose(ex, (1, 2, 0))
             plt.imshow(ex, cmap="gray")
     plt.tight_layout()
     # Save the plot
+    print(f"Saving plot to {save_path}/mnist_adv_examples.png")
     plt.savefig(f"{save_path}/mnist_adv_examples.png")
-    plt.show()
+
+
+def print_log(print_string, log):
+    print("{}".format(print_string))
+    log.write('{}\n'.format(print_string))
+    log.flush()
+
+def _log_consts(log):
+    print_log(f"DATASET: {DATASET}\n", log)
+    print_log(f"ARCH: {ARCH}\n", log)
+    print_log(f"SEED: {SEED}\n", log)
+    print_log(f"BATCH_SIZE: {BATCH_SIZE}\n", log)
+    print_log(f"use_cuda: {use_cuda}\n", log)
+    print_log(f"device: {device}\n", log)
+    print_log(f"NUM_CHANNELS: {NUM_CHANNELS}\n", log)
+    print_log(f"NUM_CLASSES: {NUM_CLASSES}\n", log)
+    print_log(f"MEAN: {MEAN}\n", log)
+    print_log(f"STD: {STD}\n", log)
+    print_log(f"chk_path: {chk_path}\n", log)
+    print_log(f"weight: {weight}\n", log)
+    print_log(f"save_path: {save_path}\n", log)
 
 def main():
-    eps = [0.0, 0.1]
+    eps = [0.05, 0.1, 0.15]
     accuracies = []
     examples = []
+    args = parse_args()
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    chk_path_first_dir = args.chk_path.split('/')[1]
+    args.save_path = f"{args.save_path}/{chk_path_first_dir}"
+    # e.g. save_path = ./save_adversarial/save_woROB
+
+    if use_cuda and torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
+    global DATASET, ARCH, SEED, chk_path, save_path, data_path
+    DATASET = args.dataset
+    ARCH = args.arch
+    SEED = args.seed
+    chk_path = args.chk_path
+    save_path = args.save_path
+    data_path = args.data_path
+
+    os.makedirs(args.save_path, exist_ok=True)
+
+    log = open(f"{args.save_path}/adv_ex.txt", "w")
+    # ------------------------- SETUP -------------------------
+    
+    _log_consts(log)
+
     train_loader, test_loader = load_test_data()
 
-    model = load_model(NUM_CLASSES, NUM_CHANNELS, False)
-    input = next(iter(test_loader))[0]
+    model = load_model(NUM_CLASSES, NUM_CHANNELS)
+    input = next(iter(train_loader))[0]
 
     print("Input shape: ", input.shape)
     if use_cuda:
-        model = model.cuda()
-        input = input.cuda()
-
-    branch_out = model(input)
-    length = len(branch_out)
+        model = model.to(device)
+        input = input.to(device)
 
     for ep in eps:
-        top1_avg, top5_avg, acc, adv_examples = validate(test_loader, model, length, True, ep)
+        print_log(f"Running for epsilon: {ep}", log)
+        acc, adv_examples = validate(test_loader, model, log, ep)
         accuracies.append(acc)
         examples.append(adv_examples)
 
-    print("Top1: ", top1_avg)
-    print("Top5: ", top5_avg)
-
-    print("Accuracies: ", accuracies)
+    print_log(f"Accuracies: {accuracies}\n", log)
     plot_adv_examples(eps, examples)
 
 if __name__ == '__main__':

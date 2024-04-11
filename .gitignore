@@ -15,6 +15,7 @@ logs/
 **/train_samples
 **/test_samples
 **/save_aug
+**/save_adversarial
 
 # ignore folders 
 __pycache__/

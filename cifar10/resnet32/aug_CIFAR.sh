@@ -39,7 +39,7 @@ echo $PYTHON
 
 ############### Neural network ############################
 {
-sbatch -p csc413 --gres gpu \
+srun -p csc413 --gres gpu \
 $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --arch ${model} --save_path ${save_path} \
     --epochs ${epochs} --learning_rate 0.0004 \

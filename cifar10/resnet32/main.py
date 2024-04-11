@@ -327,23 +327,21 @@ def main():
         # Insert random flip, rotation, translation, and color jitter
         train_transform = transforms.Compose(initial_transforms + [
             transforms.Normalize(mean, std),
-            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+            # transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
             transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomRotation(5),
+            transforms.RandomRotation(10),
             transforms.GaussianBlur(3),
-            # transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
+            transforms.RandomErasing(p=0.5, scale=(0.1, 0.1)),
         ])
         # aug_valid is just the same, but with test_transform
     if args.perturbed_valid:            
         test_transform = transforms.Compose(initial_transforms + [
             transforms.Normalize(mean, std),
-            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+            # transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
             transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomRotation(5),
+            transforms.RandomRotation(10),
             transforms.GaussianBlur(3),
-            # transforms.RandomErasing(p=0.5, scale=(0.02, 0.1)),
+            transforms.RandomErasing(p=0.5, scale=(0.1, 0.1)),
         ])
 
 
@@ -605,7 +603,7 @@ def main():
     print("Input shape:", input.shape)
     output_branch = net(input)
     num_branch = len(output_branch) # the number of branches
-    # val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+    val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
     #sys.exit()
     # update the step_size once the model is loaded. This is used for quantization.
     for m in net.modules():
