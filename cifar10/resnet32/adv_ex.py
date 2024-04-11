@@ -241,6 +241,15 @@ def plot_adv_examples(epsilons, examples):
     print(f"Saving plot to {save_path}/mnist_adv_examples.png")
     plt.savefig(f"{save_path}/mnist_adv_examples.png")
 
+def plot_accs(epsilons, accuracies):
+    plt.figure(figsize=(5,5))
+    plt.plot(epsilons, accuracies, "*-")
+    plt.yticks(np.arange(0, 1.1, step=0.1))
+    plt.xticks(np.arange(0, .35, step=0.05))
+    plt.title("Accuracy vs Epsilon")
+    plt.xlabel("Epsilon")
+    plt.ylabel("Accuracy")
+    plt.savefig(f"{save_path}/mnist_accs.png")
 
 def print_log(print_string, log):
     print("{}".format(print_string))
@@ -263,7 +272,7 @@ def _log_consts(log):
     print_log(f"save_path: {save_path}\n", log)
 
 def main():
-    eps = [0.05, 0.1, 0.15]
+    eps = [0.0, 0.05, 0.1, 0.15, 0.20]
     accuracies = []
     examples = []
     args = parse_args()
@@ -308,6 +317,7 @@ def main():
         examples.append(adv_examples)
 
     print_log(f"Accuracies: {accuracies}\n", log)
+    plot_accs(eps, accuracies)
     plot_adv_examples(eps, examples)
 
 if __name__ == '__main__':
