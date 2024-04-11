@@ -8,7 +8,7 @@ import torch.backends.cudnn as cudnn
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
-from utils import AverageMeter, RecorderMeter, time_string, convert_secs2time, clustering_loss, change_quan_bitwidth, vote_for_predict
+from utils import AverageMeter, RecorderMeter, AddGaussianNoise, time_string, convert_secs2time, clustering_loss, change_quan_bitwidth, vote_for_predict
 from torch.utils.tensorboard import SummaryWriter
 import models
 from models.quantization import quan_Conv2d, quan_Linear, quantize
@@ -340,6 +340,8 @@ def main():
             # transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
             transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
             transforms.RandomRotation(10),
+            # Gaussian noise
+            transforms.RandomApply([AddGaussianNoise(0., 0.1)], p=0.5),
             transforms.GaussianBlur(3),
             transforms.RandomErasing(p=0.5, scale=(0.1, 0.1)),
         ])
