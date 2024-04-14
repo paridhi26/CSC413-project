@@ -1192,7 +1192,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
                     #   help='weight')
         # Perhaps this is used for IC training??
         if ic_only:
-            for idx in range(len(output_branch)-1):
+            for idx in range(len(output_branch)):
                 loss += w[idx] * criterion(output_branch[idx], target)
         else:
             loss = criterion(output_branch[-1], target)
@@ -1214,7 +1214,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
             flipped_out = model.adv_outputs(inner_out)
             # print("length::", len(flipped_out)-1, len(output_branch)-1)
             if ic_only:
-                for idx in range(len(flipped_out)-1):
+                for idx in range(len(flipped_out)):
                     #print("flipped_out[idx]", flipped_out[idx], flipped_out[idx].shape)
                     loss += w[idx] * criterion(flipped_out[idx], target)
             else:

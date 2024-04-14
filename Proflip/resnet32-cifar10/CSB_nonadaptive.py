@@ -179,22 +179,21 @@ def find_psens(model, data_loader, perturbed):
         if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
             n += 1 
             if m.weight.grad is not None:
-                fit = []
                 p_grad = m.weight.grad.data.flatten()
-                #print(n,m)
-                #print(max(abs(p_grad)))
                 p_weight = m.weight.data.flatten()
-                Q_p = max(p_weight)
-                for i in range(len(p_grad)):
-                    if p_grad[i] < 0:
-                        step = Q_p - p_weight[i]
-                    else:
-                        step = 0
-                    f = abs(p_grad[i])*step
-                    fit.append(f) 
-                fit = max(fit)
-                # print("Fit:", fit)
-                F.append(fit)
+
+                Q_p = torch.max(p_weight)
+
+                # Calculate step for each element in p_grad
+                steps = torch.where(p_grad < 0, Q_p - p_weight, 0)
+
+                # Calculate fit for each element in p_grad
+                fit = torch.abs(p_grad) * steps
+
+                # Find the maximum fit
+                max_fit = torch.max(fit)
+
+                F.append(max_fit)
             else:
                 F.append(0)
     idx = F.index(max(F))
@@ -399,14 +398,14 @@ def validate(val_loader, model, criterion, num_branch):
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
-            num_c = min(3, len(index_list))#6 # the number of branches 
+            num_c = 3#6 # the number of branches 
             branch_index = list(range(0, num_branch))#num_branch
             for j in range(input.size(0)):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list, num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                # pre_index = random.sample(index_list, num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -482,14 +481,14 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
-            num_c = min(3, len(index_list))#6 # the number of branches 
+            num_c = 3#6 # the number of branches 
             branch_index = list(range(0, num_branch))#num_branch
             for j in range(input.size(0)):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list, num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                # pre_index = random.sample(index_list, num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):

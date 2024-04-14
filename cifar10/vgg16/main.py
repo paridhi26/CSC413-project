@@ -7,7 +7,8 @@ import torch
 import torch.backends.cudnn as cudnn
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
-from utils import AverageMeter, RecorderMeter, time_string, convert_secs2time, clustering_loss, change_quan_bitwidth, vote_for_predict
+import torchvision.utils as vutils
+from utils import AverageMeter, RecorderMeter, AddGaussianNoise, time_string, convert_secs2time, clustering_loss, change_quan_bitwidth, vote_for_predict
 from torch.utils.tensorboard import SummaryWriter
 import models
 from models.quantization import quan_Conv2d, quan_Linear, quantize
@@ -188,7 +189,11 @@ parser.add_argument('--adv_train',
 parser.add_argument('--aug_train',
                     dest='aug_train',
                     action='store_true',
-                    help='augmented training')                   
+                    help='augmented training')   
+parser.add_argument('--perturbed_valid',
+                    dest='perturbed_valid',
+                    action='store_true',
+                    help='perturbed validation set')
 
 parser.add_argument('--weight', default='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1', 
                       help='weight')
@@ -197,8 +202,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # if args.ngpu == 1:
 #     os.environ["CUDA_VISIBLE_DEVICES"] = str(
 #         args.gpu_id)  # make only device #gpu_id visible, then
-assert args.ngpu == 1, "Only support single GPU."
-assert torch.cuda.is_available(), "CUDA is not available."
+
 args.use_cuda = args.ngpu > 0 and torch.cuda.is_available()  # check GPU
 
 # Give a random seed if no manual configuration
@@ -211,7 +215,6 @@ if args.use_cuda:
     torch.cuda.manual_seed_all(args.manualSeed)
 
 cudnn.benchmark = True
-
 import signal
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -301,7 +304,7 @@ def main():
         ])
     else:
         train_transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
+            transforms.Resize(32),
             transforms.RandomCrop(32, padding=4),
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
@@ -309,7 +312,42 @@ def main():
         test_transform = transforms.Compose([
             transforms.Resize(32),
             transforms.ToTensor(),
-            transforms.Normalize(mean, std)])
+            transforms.Normalize(mean, std)
+        ])
+
+    initial_transforms = [
+        transforms.Resize(32),
+        transforms.RandomCrop(32, padding=4),
+        transforms.ToTensor()
+    ]
+    if args.dataset == 'finetune_mnist':
+        initial_transforms.append(transforms.Lambda(lambda x: x.repeat(3, 1, 1)))
+    if args.aug_train:
+        # Augmented training
+        # Insert random flip, rotation, translation, and color jitter
+        train_transform = transforms.Compose(initial_transforms + [
+            transforms.Normalize(mean, std),
+            # transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+            transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+            transforms.RandomRotation(10),
+            transforms.GaussianBlur(3),
+            transforms.RandomErasing(p=0.5, scale=(0.1, 0.1)),
+        ])
+        # aug_valid is just the same, but with test_transform
+    if args.perturbed_valid:            
+        test_transform = transforms.Compose(initial_transforms + [
+            transforms.Normalize(mean, std),
+            # transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+            transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+            transforms.RandomRotation(10),
+            # Gaussian noise
+            transforms.RandomApply([AddGaussianNoise(0., 0.1)], p=0.5),
+            transforms.GaussianBlur(3),
+            transforms.RandomErasing(p=0.5, scale=(0.1, 0.1)),
+        ])
+
+
+    
     num_channels = 3
     if args.dataset == 'mnist':
         train_data = dset.MNIST(args.data_path,
@@ -393,8 +431,46 @@ def main():
                                               num_workers=args.workers,
                                               pin_memory=True)
 
-    print_log("=> creating model '{}'".format(args.arch), log)
+    # x, y = next(iter(train_loader))
+    # print("Train image shape: ", x.shape)
+    # Save some image samples
+    # Create a directory to save train samples
+    if args.aug_train:
+        os.makedirs("./train_samples", exist_ok=True)
 
+        # Save some train image samples
+        sample_count = 0
+        for batch_idx, (data, _) in enumerate(train_loader):
+            for i in range(len(data)):
+                if sample_count >= 15:  # Save 10 samples
+                    break
+                # Save image sample
+                vutils.save_image(data[i], f"train_samples/sample_{sample_count}.png")
+                sample_count += 1
+            if sample_count >= 10:
+                break
+
+        print("Train samples saved successfully.")
+    if args.perturbed_valid:
+        os.makedirs("./test_samples", exist_ok=True)
+
+        # Save some train image samples
+        sample_count = 0
+        for batch_idx, (data, _) in enumerate(test_loader):
+            for i in range(len(data)):
+                if sample_count >= 15:  # Save 10 samples
+                    break
+                # Save image sample
+                vutils.save_image(data[i], f"test_samples/sample_{sample_count}.png")
+                sample_count += 1
+            if sample_count >= 10:
+                break
+
+        print("Test samples saved successfully.")
+
+
+    print_log("=> creating model '{}'".format(args.arch), log)
+    print("Num channels:", num_channels)
     # Init model, criterion, and optimizer
     net = models.__dict__[args.arch](num_classes, num_channels)
     # print_log("=> network :\n {}".format(net), log)
@@ -451,6 +527,7 @@ def main():
 
     # optionally resume from a checkpoint
     if args.resume:
+        print("=> loading checkpoint '{}'".format(args.resume))
         if os.path.isfile(args.resume):
             print_log("=> loading checkpoint '{}'".format(args.resume), log)
             #checkpoint = torch.load(args.resume)
@@ -464,8 +541,8 @@ def main():
             else:
                 checkpoint = torch.load(args.resume)#checkpoint_branch.pth.tar#model_best_def.pth.tar
             
-            #if not (args.fine_tune):
             if not args.ic_only:
+                print("Epoch: ", checkpoint['epoch'])
                 args.start_epoch = checkpoint['epoch']
                 # recorder = checkpoint['recorder']
                 optimizer.load_state_dict(checkpoint['optimizer'])
@@ -528,8 +605,7 @@ def main():
     print("Input shape:", input.shape)
     output_branch = net(input)
     num_branch = len(output_branch) # the number of branches
-    
-    # val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+    val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
     #sys.exit()
     # update the step_size once the model is loaded. This is used for quantization.
     for m in net.modules():
@@ -569,13 +645,14 @@ def main():
                 
 
 
-    val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+    # val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
     
     if args.enable_bfa:
         validate2(test_loader, net, criterion, log, num_branch, args.ic_only)
         perform_attack(attacker, net, net_clean, train_loader, test_loader,
                        args.n_iter, log, writer, num_branch, csv_save_path=args.save_path,
                        random_attack=args.random_bfa)
+        
         return 
 
     # for p in net.parameters():
@@ -608,22 +685,22 @@ def main():
     #return 
     if args.evaluate:
         print("first evaluate:")
-        _,_,_, output_summary = validate(test_loader, net, criterion, log, num_branch, args.ic_only, summary_output=True)
-        pd.DataFrame(output_summary).to_csv(os.path.join(args.save_path, 'output_summary_{}.csv'.format(args.arch)),
-                                            header=['top-1 output'], index=False)
-        #return
+        # _,_,_, output_summary = validate(test_loader, net, criterion, log, num_branch, args.ic_only, summary_output=True)
+        # pd.DataFrame(output_summary).to_csv(os.path.join(args.save_path, 'output_summary_{}.csv'.format(args.arch)),
+        #                                     header=['top-1 output'], index=False)
+        val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+        
+        sys.exit()
 
     # Main loop
     start_time = time.time()
     epoch_time = AverageMeter()
-    
+ 
     print("epoch :", args.start_epoch, args.epochs)
     count=0
     is_best_defense_best=0
     is_best_defense=0
     # if args.resume:
-    #     # for item in filter(lambda param: param.requires_grad, net.parameters()):
-    #     #     print("item:", item.name)
         
     #     optimizer = torch.optim.Adam(filter(lambda param: param.requires_grad,
     #                                         net.parameters()),
@@ -653,24 +730,26 @@ def main():
                 for para in m.parameters():
                     para.requires_grad=False
         for i in range(20):# simulate flip 20bits for model
-            adv_attack(attacker, net_flipped, net_clean, train_loader, test_loader,
-                            args.n_iter, log, writer, num_branch, csv_save_path=args.save_path,
-                            random_attack=args.random_bfa)
-        
+            adv_attack(attacker, net_flipped, net_clean, train_loader, test_loader, args.n_iter, log, writer, num_branch, csv_save_path=args.save_path,
+            random_attack=args.random_bfa)
+
     for epoch in range(args.start_epoch, args.epochs):
         count+=1
         # if count>1:
         #     break
         # if epoch > 20:
         #     break
+        
+        # Note that: this is nonsense.
         current_learning_rate, current_momentum = adjust_learning_rate(
             optimizer, epoch, args.gammas, args.schedule)
+        
         # Display simulation time
         need_hour, need_mins, need_secs = convert_secs2time(
             epoch_time.avg * (args.epochs - epoch))
         need_time = '[Need: {:02d}:{:02d}:{:02d}]'.format(
             need_hour, need_mins, need_secs)
-
+        
         if epoch > 0:
             print_log(
                 '\n==>>{:s} [Epoch={:03d}/{:03d}] {:s} [LR={:6.4f}][M={:1.2f}]'.format(time_string(), epoch, args.epochs,
@@ -680,6 +759,7 @@ def main():
                     recorder.max_accuracy(False),
                     100 - recorder.max_accuracy(False)),
                 log)
+            
 
         
         # train for one epoch
@@ -689,8 +769,6 @@ def main():
         # train_acc, train_los = train(train_loader, net, criterion, optimizer,
         #                              epoch, log, list_shape, True)
 
-
-       
 
         # evaluate on validation set
         val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
@@ -800,6 +878,7 @@ def main():
     val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
         
     log.close()
+
 index_list = []
 def validate2(val_loader, model, criterion, log, num_branch, ic_only, summary_output=False):
     global index_list
@@ -866,7 +945,7 @@ def validate2(val_loader, model, criterion, log, num_branch, ic_only, summary_ou
             index_list.append(c_)
         #print("c_{}", c_, item.avg)  
         c_ += 1 
-
+    index_list.append(14)
     return index_list
 
 
@@ -875,7 +954,6 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
                    N_iter, log, writer, num_branch, csv_save_path=None, random_attack=False):
     # Note that, attack has to be done in evaluation model due to batch-norm.
     # see: https://discuss.pytorch.org/t/what-does-model-eval-do-for-batchnorm-layer/7146
-    
     T = get_msd_T(args, test_loader, model)
     flop_table = [16.79, 30.29, 36.54, 50.04, 61.42, 74.92, 79.42]
 
@@ -922,8 +1000,7 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
 
     # evaluate the test accuracy of clean model
     s_t = time.time()
-    val_acc_top1, val_acc_top5, val_loss= validate_for_attack(test_loader, model,
-                                                    attacker.criterion, log, T, num_branch)
+    val_acc_top1, val_acc_top5, val_loss= validate_for_attack(test_loader, model, attacker.criterion, log, T, num_branch)
     cons = time.time() - s_t
     print("s_t:", cons)
     # tmp_df = pd.DataFrame(output_summary, columns=['top-1 output'])
@@ -942,7 +1019,7 @@ def perform_attack(attacker, model, model_clean, train_loader, test_loader,
     for i_iter in range(N_iter):
         print_log('**********************************', log)
         if not random_attack:
-            attack_log = attacker.progressive_bit_search(model, data, target, range(0, num_branch))
+            attack_log = attacker.progressive_bit_search(model, data, target, index_list[:])
         else:
             attack_log = attacker.random_flip_one_bit(model)
             
@@ -1049,7 +1126,7 @@ def adv_attack(attacker, model, model_clean, train_loader, test_loader,
 
     
     attack_log = attacker.progressive_bit_search(model, data, target, range(0, num_branch)) 
-        
+          
 
     return
 
@@ -1084,7 +1161,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
         if args.use_cuda:
             target = target.cuda(
                 non_blocking=True
-            )  # the copy will be asynchronous with respect to the host.
+            )  # the copy will be non_blockinghronous with respect to the host.
             input = input.cuda()
 
         # modify the model in advance
@@ -1112,10 +1189,12 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
 
 
         loss = 0
-        
+        # parser.add_argument('--weight', default='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1', 
+                    #   help='weight')
+        # Perhaps this is used for IC training??
         if ic_only:
-            for idx in range(len(output_branch)-1):
-                loss += w[idx] * criterion(output_branch[idx], target)
+            for idx in range(len(output_branch)):
+                loss += criterion(output_branch[idx], target)
         else:
             loss = criterion(output_branch[-1], target)
         
@@ -1129,22 +1208,23 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
         optimizer.step()
         optimizer.zero_grad()
 
-        if args.adv_train:#adv train
+        if args.adv_train:#adv train = ROBUST IC
             loss = 0
             
             inner_out = net_flipped.flip_outputs(input)
             flipped_out = model.adv_outputs(inner_out)
             # print("length::", len(flipped_out)-1, len(output_branch)-1)
             if ic_only:
-                for idx in range(len(flipped_out)-1):
+                for idx in range(len(flipped_out)):
                     #print("flipped_out[idx]", flipped_out[idx], flipped_out[idx].shape)
-                    loss += w[idx] * criterion(flipped_out[idx], target)
+                    loss +=  criterion(flipped_out[idx], target)
             else:
                 loss = criterion(flipped_out[-1], target)
 
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+
 
         loss2 = loss
         # measure accuracy and record loss
@@ -1194,7 +1274,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log, list_shape, fli
                 'Prec_B6@1 {top1_b6.val:.3f} ({top1_b6.avg:.3f})   '
                 'Prec_B6@5 {top5_b6.val:.3f} ({top5_b6.avg:.3f})   '
                 'Prec_Bmain@1 {top1_main.val:.3f} ({top1_main.avg:.3f})   '
-                'Prec_Bmain@5 {top5_main.val:.3f} ({top5_main.avg:.3f})   '
+                'Prec_Bmain@5 {top5_main.val:.3f} ({top5_main.avg:.3f})\n   '
                 .format(
                     epoch,
                     i,
@@ -1255,6 +1335,8 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
     top1 = AverageMeter()
     top5 = AverageMeter()
 
+    print("Validating...")
+
     top1_list = []
     for idx in range(num_branch):
         top1_list.append(AverageMeter())
@@ -1263,7 +1345,7 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
         top5_list.append(AverageMeter())
 
 
-    print("Validating...")
+
     # switch to evaluate mode
     model.eval()
     output_summary = [] # init a list for output summary
@@ -1332,6 +1414,7 @@ def validate(val_loader, model, criterion, log, num_branch, ic_only, summary_out
         sum=0
         if ic_only: #if only train ic branch
             for item in top1_list[:-1]:
+                # print_log(f"item.avg: {item.avg}", log)
                 sum += item.avg
             top1_avg = sum/len(top1_list[:-1])
             sum=0
@@ -1381,25 +1464,26 @@ def get_msd_T(args, test_loader, model):
     index = 0   
     for i, (input, target) in enumerate(test_loader):
         if args.use_cuda:
-            #target = target.cuda(non_blocking=True
+            #target = target.cuda(non_blocking=True)
             input = input.cuda()
         target = target.squeeze().long().cuda(non_blocking=True)
-        target_var = Variable(target, volatile=True)
-        input_var = Variable(input, volatile=True)
+        with torch.no_grad():
+            target_var = Variable(target)
+            input_var = Variable(input)
 
 
         # compute output
         output_branch = model(input)
-        
         ## dtnamic inference
+        # print("Output branch shape:", output_branch[0].shape)
         sm = torch.nn.functional.softmax
-        prob_branch1 = sm(output_branch[0])
-        prob_branch2 = sm(output_branch[1])
-        prob_branch3 = sm(output_branch[2])
-        prob_branch4 = sm(output_branch[3])
-        prob_branch5 = sm(output_branch[4])
-        prob_branch6 = sm(output_branch[5])
-        prob_main = sm(output_branch[6])
+        prob_branch1 = sm(output_branch[0], dim=1)
+        prob_branch2 = sm(output_branch[1], dim=1)
+        prob_branch3 = sm(output_branch[2], dim=1)
+        prob_branch4 = sm(output_branch[3], dim=1)
+        prob_branch5 = sm(output_branch[4], dim=1)
+        prob_branch6 = sm(output_branch[5], dim=1)
+        prob_main = sm(output_branch[6], dim=1)
 
         measure_branch1 = torch.sum(torch.mul(-prob_branch1, torch.log(prob_branch1 + 1e-5)), dim=1)
         measure_branch2 = torch.sum(torch.mul(-prob_branch2, torch.log(prob_branch2 + 1e-5)), dim=1)
@@ -1501,13 +1585,13 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
     output_summary = [] # init a list for output summary
     s1 = time.time()
     print("inde:", index_list)
-    inference_cost = 0# count inference cost
+    
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
             if args.use_cuda:
                 target = target.cuda(non_blocking=True)
                 input = input.cuda()
-            target_var = Variable(target, volatile=True)
+            target_var = Variable(target)
         
 
 
@@ -1516,7 +1600,7 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
             output_branch = model(input)
             sm = torch.nn.functional.softmax
             for output in output_branch:
-                prob_branch = sm(output)
+                prob_branch = sm(output, dim=1)
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
@@ -1527,11 +1611,11 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda(non_blocking=True)
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
                 pre_index = random.sample(branch_index, num_c) # randomly selected index
-                #pre_index = random.sample(index_list[0:], num_c) # randomly selected index
+                # pre_index = random.sample(index_list[4:], num_c) # randomly selected index
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
-                        #item = -3
+                        #item = -2
                         sm_out = out_list[item][0][j]
                         out = Variable(torch.from_numpy(sm_out.data.cpu().numpy().reshape((1,-1))).float().cuda())
                         loss = criterion(out, tar_var)
@@ -1539,7 +1623,6 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
                         top1.update(prec1, 1)
                         losses.update(loss.item(), 1)
                         count_list[item]+=1
-                        inference_cost += item
                         break
                     c_ += 1
         
@@ -1547,13 +1630,8 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
         print_log('top1.avg: {:.4f}'.format(top1.avg), log)
         #print("top1.avg:", top1.avg, top5.avg, top_list[0].avg, top_list[1].avg, top_list[2].avg, top_list[3].avg, top_list[4].avg, top_list[5].avg, top_list[6].avg)
         print(count_list)
-        t_ = sum(count_list)*(num_branch-1)
-        print('inference cost:', inference_cost, inference_cost/t_)
-        sys.exit()
         return top1.avg, top5.avg, losses.avg
         #return res[0], top5.avg, losses.avg
-
-
 
 
 
@@ -1569,7 +1647,6 @@ def save_checkpoint(state, is_best, save_path, filename, log):
     filename = os.path.join(save_path, filename)
     torch.save(state, filename)
     if is_best:  # copy the checkpoint to the best model if it is the best_accuracy
-        
         bestname = os.path.join(save_path, 'model_best.pth.tar')
         print("current model is best:", bestname)
         shutil.copyfile(filename, bestname)
@@ -1609,7 +1686,7 @@ def adjust_learning_rate(optimizer, epoch, gammas, schedule):
 
 
 def accuracy(output, target, topk=(1, )):
-    """Computes the precision@k for the specified values of k"""
+    """Computes the accuracy@k for the specified values of k"""
     with torch.no_grad():
         maxk = max(topk)
         batch_size = target.size(0)
@@ -1646,4 +1723,11 @@ def accuracy_logger(base_dir, epoch, train_accuracy, test_accuracy):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('Interrupted')
+        try:
+            sys.exit(130)
+        except SystemExit:
+            os._exit(130)

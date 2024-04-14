@@ -324,14 +324,14 @@ def validate(val_loader, model, criterion, num_branch):
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
-            num_c = min(3, len(index_list)) # the number of branches 
+            num_c = 3 # the number of branches 
             branch_index = list(range(0, num_branch))#num_branch
             for j in range(input.size(0)):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list, num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                # pre_index = random.sample(index_list, num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -404,14 +404,14 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
-            num_c = min(3, len(index_list))#6 # the number of branches 
+            num_c = 3#6 # the number of branches 
             branch_index = list(range(0, num_branch))#num_branch
             for j in range(input.size(0)):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list, num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                # pre_index = random.sample(index_list, num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):

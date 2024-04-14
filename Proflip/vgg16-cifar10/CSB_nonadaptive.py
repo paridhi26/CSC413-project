@@ -154,7 +154,9 @@ def to_var(x, requires_grad=False, volatile=False):
     return Variable(x, requires_grad=requires_grad)
 
 def find_psens(model, data_loader, perturbed):
+    # model = net1
     model.eval()
+    print_log("Start of finding psens", log)
     for batch_idx, (data, target) in enumerate(data_loader):
         data,target = data.cuda(), target.cuda()
         data[:,:,start:end,start:end] = perturbed
@@ -174,26 +176,27 @@ def find_psens(model, data_loader, perturbed):
     loss.backward()
     F = []
     n = 0
+    # print_log(f"Looping through {len(model.modules())} modules", log)
     for m in net1.modules():
         if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
             n += 1 
+            # print_log(f"n:{n}", log)
             if m.weight.grad is not None:
-                fit = []
                 p_grad = m.weight.grad.data.flatten()
-                #print(n,m)
-                #print(max(abs(p_grad)))
                 p_weight = m.weight.data.flatten()
-                Q_p = max(p_weight)
-                for i in range(len(p_grad)):
-                    if p_grad[i] < 0:
-                        step = Q_p - p_weight[i]
-                    else:
-                        step = 0
-                    f = abs(p_grad[i])*step
-                    fit.append(f) 
-                fit = max(fit)
-                # print(fit)
-                F.append(fit)
+
+                Q_p = torch.max(p_weight)
+
+                # Calculate step for each element in p_grad
+                steps = torch.where(p_grad < 0, Q_p - p_weight, 0)
+
+                # Calculate fit for each element in p_grad
+                fit = torch.abs(p_grad) * steps
+
+                # Find the maximum fit
+                max_fit = torch.max(fit)
+
+                F.append(max_fit)
             else:
                 F.append(0)
     idx = F.index(max(F))
@@ -553,10 +556,12 @@ validate(test_loader, net1, criterion, 15)
 psens = find_psens(net1,test_loader,perturbed)
 print(psens)
 
-test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers) 
+test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size // 4, shuffle=True, num_workers=args.num_workers) 
 last_loc=0
 num=0
 
+print_log(f"psens:{psens}", log)
+print_log("Start attacking", log)
 dpi = 80
 width, height = 1200, 800
 legend_fontsize = 10
