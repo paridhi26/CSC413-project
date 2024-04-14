@@ -1,5 +1,3 @@
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 import numpy as np
 import torch
 import torch.nn as nn
@@ -17,17 +15,121 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 from utils import AverageMeter, RecorderMeter
 from models.quantization import quan_Conv2d, quan_Linear, quantize
-import argparse
 
+import argparse
+import signal
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+assert torch.cuda.is_available()
+
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
+# Model
+parser.add_argument('--model', default='resnet32', type=str, help='model type')
+# Dataset
+parser.add_argument('--dataset', default='cifar10', type=str, help='dataset name')
+# Paths
+parser.add_argument('--data_path', default='./data', type=str, help='data path')
+parser.add_argument('--save_path', default='./save', type=str, help='experiment path')
+parser.add_argument('--chk_path', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+# Run settings
+parser.add_argument('--manualSeed', type=int, help='manual seed')
+# Device options
+parser.add_argument('--num_workers', default=1, type=int, help='number of workers')
+parser.add_argument('--batch_size', default=128, type=int, help='batch size')
+
+args = parser.parse_args()
+
+if args.dataset == 'mnist':
+    num_classes = 10
+    num_channels = 1
+    mean = (0.5,)
+    std = (0.5,)
+if args.dataset == 'finetune_mnist':
+    num_classes = 10
+    num_channels = 3
+    mean = [0.5, 0.5, 0.5]
+    std = [0.5, 0.5, 0.5]
+
+net = models.__dict__[f'{args.model}1'](num_classes, num_channels)
+net1 = models.__dict__[args.model](num_classes, num_channels)
+pretrain_dict = torch.load(f'../../cifar10/vgg16/{args.chk_path}', 
+                           map_location=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
+pretrain_dict = pretrain_dict['state_dict']
+model_dict = net.state_dict()
+pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
+model_dict.update(pretrained_dict) 
+
+net.load_state_dict(model_dict) 
+net.eval()
+net=net.cuda()
+
+net1.load_state_dict(model_dict) 
+net1.eval()
+net1=net1.cuda()
+
+
+print('==> Preparing data..')
+print('==> Preparing data..') 
+if args.dataset == 'finetune_mnist':
+        # Convert mnist to 3 channels
+        train_transform = transforms.Compose([
+            # convert to 3 channels
+            transforms.Resize(32),
+            transforms.RandomCrop(32, padding=4),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
+else:
+    train_transform = transforms.Compose([
+        transforms.Resize(32),
+        transforms.RandomCrop(32, padding=4),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(32),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+
+train_data = torchvision.datasets.MNIST(f'../../cifar10/vgg16/{args.data_path}', train=True, transform=train_transform, download=True)
+test_data = torchvision.datasets.MNIST(f'../../cifar10/vgg16/{args.data_path}',
+                        train=False,
+                        transform=test_transform,
+                        download=True)
+
+train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers) 
+
+test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)  
+
+theta = 0.1
+gamma = 0.5
+ys_target = 2
+increasing = True
+I = []
+
+for batch_idx, (data, target) in enumerate(train_loader):
+    data, target = data.cuda(), target.cuda()
+    break
+
+#model = net.classifier[3]
+model = net.classifier
+var_target = Variable(torch.LongTensor([ys_target,])).cuda()
 
 def zero_gradients(x):
     assert isinstance(x, torch.Tensor)
-
     if x.grad is not None:
         x.grad.detach_()
         x.grad.zero_()
-        
-            
+
+
 def compute_jacobian(model, input):
     
     a = input.cuda()
@@ -40,7 +142,7 @@ def compute_jacobian(model, input):
         mask[:, i] = 1
         zero_gradients(input)
         #input.zero_grad()
-        output.backward(torch.tensor(mask).cuda(), retain_graph=True)
+        output.backward(mask.clone().detach().cuda(), retain_graph=True)
         # copy the derivative to the target place
         jacobian[i] = input.grad.squeeze().view(-1, num_features).clone()
         mask[:, i] = 0  # reset
@@ -96,72 +198,6 @@ def saliency_map(jacobian, target_index, increasing, search_space, nb_features):
     q = max_idx % nb_features
     return p, q
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
-    parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
-    parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
-    parser.add_argument('--model', default='resnet32', type=str, help='model type')
-    parser.add_argument('checkpoint_path', type=str, help='checkpoint path')
-    parser.add_argument('--seed', default=0, type=int, help='random seed')
-    parser.add_argument('--dataset', default='cifar10', type=str, help='dataset')
-
-    args = parser.parse_args()
-    return args
-
-net = models.__dict__['resnet32_quan1'](10)
-net1 = models.__dict__['resnet32_quan'](10)
-pretrain_dict = torch.load('../../cifar10/resnet32/save_finetune/model_best.pth.tar')
-pretrain_dict = pretrain_dict['state_dict']
-model_dict = net.state_dict()
-pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
-model_dict.update(pretrained_dict) 
-
-net.load_state_dict(model_dict) 
-net.eval()
-net=net.cuda()
-
-net1.load_state_dict(model_dict) 
-net1.eval()
-net1=net1.cuda()
-
-mean = [x / 255 for x in [129.3, 124.1, 112.4]]
-std = [x / 255 for x in [68.2, 65.4, 70.4]]
-print('==> Preparing data..')
-print('==> Preparing data..') 
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize(mean,std)
-])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean,std)
-])
-
-
-trainset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=True, download=True, transform=transform_train) 
-
-loader_train = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2) 
-
-testset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=False, download=True, transform=transform_test) 
-loader_test = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=2)  
-
-theta = 0.1
-gamma = 0.5
-ys_target = 2
-increasing = True
-I = []
-
-for batch_idx, (data, target) in enumerate(loader_train):
-    data, target = data.cuda(), target.cuda()
-    break
-
-#model = net.classifier[3]
-model = net.classifier
-var_target = Variable(torch.LongTensor([ys_target,])).cuda()
-
 def accuracy(output, target, topk=(1, )):
     """Computes the precision@k for the specified values of k"""
     with torch.no_grad():
@@ -178,7 +214,7 @@ def accuracy(output, target, topk=(1, )):
             
             res.append(correct_k.mul_(100.0 / batch_size))
         return res    
-
+   
 index_list = []
 def validate2(val_loader, model, criterion, num_branch):
     global index_list
@@ -275,7 +311,7 @@ def validate(val_loader, model, criterion, num_branch):
         for i, (input, target) in enumerate(val_loader):
             target = target.cuda()
             input = input.cuda()
-            target_var = Variable(target, volatile=True)
+            target_var = Variable(target)
         
 
 
@@ -284,7 +320,7 @@ def validate(val_loader, model, criterion, num_branch):
             output_branch = model(input)
             sm = torch.nn.functional.softmax
             for output in output_branch:
-                prob_branch = sm(output)
+                prob_branch = sm(output, dim=1)
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
@@ -294,8 +330,8 @@ def validate(val_loader, model, criterion, num_branch):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list[4:], num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                #pre_index = random.sample(index_list[4:], num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -355,7 +391,7 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
             input[:,0:3,start:end,start:end]=xh
             target = target.cuda()
             input = input.cuda()
-            target_var = Variable(target, volatile=True)
+            target_var = Variable(target)
         
 
 
@@ -364,7 +400,7 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
             output_branch = model(input)
             sm = torch.nn.functional.softmax
             for output in output_branch:
-                prob_branch = sm(output)
+                prob_branch = sm(output, dim=1)
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
@@ -374,8 +410,8 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list[4:], num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                #pre_index = random.sample(index_list[4:], num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -391,7 +427,7 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                     c_ += 1
         print("top1.asr!:", top1.avg, top5.avg)
         #print("top1.avg:", top1.avg, top5.avg, top_list[0].avg, top_list[1].avg, top_list[2].avg, top_list[3].avg, top_list[4].avg, top_list[5].avg, top_list[6].avg)
-        print(count_list)
+        print("Count list:", count_list)
         return top1.avg
 
 def to_var(x, requires_grad=False, volatile=False):
@@ -400,7 +436,7 @@ def to_var(x, requires_grad=False, volatile=False):
     """
     if torch.cuda.is_available():
         x = x.cuda()
-    return Variable(x, requires_grad=requires_grad, volatile=volatile)
+    return Variable(x, requires_grad=requires_grad)
 
 def test1(model, loader, xh):
     """
@@ -413,11 +449,11 @@ def test1(model, loader, xh):
     
 
     for x, y in loader:
-        x_var = to_var(x, volatile=True)
+        x_var = to_var(x)
         x_var[:,0:3,start:end,start:end]=xh
         y[:]=ys_target 
      
-        scores = model(x_var)[15]
+        scores = model(x_var)[14]
         _, preds = scores.data.cpu().max(1)
         num_correct += (preds == y).sum()
 
@@ -429,15 +465,14 @@ def test1(model, loader, xh):
 
 criterion = nn.CrossEntropyLoss()
 criterion=criterion.cuda()
-validate2(loader_test, net1, criterion, 16)  
-print(index_list)
-validate(loader_test, net1, criterion, 16)
+#validate2(test_loader, net1, criterion, 15)    
+validate(test_loader, net1, criterion, 15)
 
 for i in range(len(data)):
-    print(i)
+    # print(i)
     I_s = []
-    img = data[i].resize(1,3,32,32)
-    image = net(img)[15]
+    img = torch.reshape(data[i], (1, num_channels, 32, 32))
+    image = net(img)[14]
     mins,maxs = image.min(),image.max()
     copy_sample = image.cpu().detach().numpy()
     sample = Variable(torch.from_numpy(copy_sample), requires_grad=True)
@@ -480,30 +515,31 @@ for i in range(len(data)):
         
 I_t = I[0]
 for i in range(len(I)):
-    I_t = list(set(I_t) | set(I[i]))
+    I_t = list(set(I_t) & set(I[i]))
     
 I_t = np.array(I_t)
-print(I_t)
-np.save('./result/SNI.npy',I_t)
+print("I_t:", I_t)
+np.save(f'{args.save_path}/SNI.npy',I_t)
 
-I_t = np.load('./result/SNI.npy', allow_pickle=True)
+# I_t = np.load(f'{args.save_path}/SNI.npy', allow_pickle=True)
 I_t=torch.Tensor(I_t).long().cuda()
-print(I_t)
+# print(I_t)
 start = 21
 end = 31
 
 criterion1 = nn.MSELoss()
 criterion2 = nn.CrossEntropyLoss()
 
-for batch_idx, (data, target) in enumerate(loader_test):
+for batch_idx, (data, target) in enumerate(test_loader):
     data, target = data.cuda(), target.cuda()
     #x_var = Variable(data, requires_grad=False, volatile=False)
     break
     
-y = net(data)[15]
+y = net(data)[14]
 y[:,I_t] = 10
 perturbed = torch.zeros_like(data[0,0:3,start:end,start:end])
-validate_for_attack(loader_test, net1, criterion, 16, perturbed)
+test1(net1,test_loader,perturbed)
+validate_for_attack(test_loader, net1, criterion, 15, perturbed)
 var_target = target.clone()
 var_target[:] = 2
 
@@ -511,17 +547,18 @@ for i in range(10):
     with torch.no_grad():
         data[:,:,start:end,start:end] = perturbed
     data.requires_grad = True
-    output = net(data)[15]
-    output1 = net1(data)[15]
+    output = net(data)[14]
+    output1 = net1(data)[14]
     loss_mse = criterion1(output,y.detach())
     loss_ce = criterion2(output1,var_target)
     loss_trig = loss_mse + loss_ce
     zero_gradients(data)
     loss_trig.backward()
-    #print(loss_trig)
+    print("loss_trig:",loss_trig)
     grad = sum(data.grad[:,:,start:end,start:end])
     data.requires_grad = False
     perturbed -= 0.01*grad 
     
-validate_for_attack(loader_test, net1, criterion, 16, perturbed)
-torch.save(perturbed,'./result/perturbed.pth')
+test1(net1,test_loader,perturbed)
+validate_for_attack(test_loader, net1, criterion, 15, perturbed)
+torch.save(perturbed,f'{args.save_path}/perturbed.pth')

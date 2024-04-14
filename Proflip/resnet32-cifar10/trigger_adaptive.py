@@ -1,5 +1,4 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,21 +11,134 @@ import models
 import utils
 import copy
 import random
-from PIL import Image
-from torch.utils.data import Dataset
-from tqdm import tqdm
-from utils import AverageMeter, RecorderMeter
+from utils import AverageMeter
 from models.quantization import quan_Conv2d, quan_Linear, quantize
 import argparse
+import signal
+signal.signal(signal.SIGINT, signal.SIG_DFL)
 
+
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
+# Model
+parser.add_argument('--model', default='resnet32', type=str, help='model type')
+# Dataset
+parser.add_argument('--dataset', default='cifar10', type=str, help='dataset name')
+# Paths
+parser.add_argument('--data_path', default='./data', type=str, help='data path')
+parser.add_argument('--save_path', default='./save', type=str, help='experiment path')
+parser.add_argument('--chk_path', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+# Run settings
+parser.add_argument('--manualSeed', type=int, help='manual seed')
+# Device options
+parser.add_argument('--num_workers', default=1, type=int, help='number of workers')
+parser.add_argument('--batch_size', default=128, type=int, help='batch size')
+
+args = parser.parse_args()
+
+log = open(
+    os.path.join(f'{args.save_path}/adaptive', 'log_seed_{}.txt'.format(args.manualSeed)), 'w')
+
+def print_log(print_string, log):
+    print("{}".format(print_string))
+    log.write('{}\n'.format(print_string))
+    log.flush()
+
+# Print args
+print_log(args, log)
+
+if args.dataset == 'mnist':
+    num_classes = 10
+    num_channels = 1
+    mean = (0.5,)
+    std = (0.5,)
+if args.dataset == 'finetune_mnist':
+    num_classes = 10
+    num_channels = 3
+    mean = [0.5, 0.5, 0.5]
+    std = [0.5, 0.5, 0.5]
+
+net1 = models.__dict__[f'{args.model}1'](num_classes, num_channels)
+net = models.__dict__[args.model](num_classes, num_channels)
+pretrain_dict = torch.load(f'../../cifar10/resnet32/{args.chk_path}', 
+                           map_location=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
+pretrain_dict = pretrain_dict['state_dict']
+model_dict = net.state_dict()
+pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
+model_dict.update(pretrained_dict) 
+
+net.load_state_dict(model_dict) 
+net.eval()
+net=net.cuda()
+
+net1.load_state_dict(model_dict) 
+net1.eval()
+net1=net1.cuda()
+
+
+print('==> Preparing data..')
+print('==> Preparing data..') 
+if args.dataset == 'finetune_mnist':
+        # Convert mnist to 3 channels
+        train_transform = transforms.Compose([
+            # convert to 3 channels
+            transforms.Resize(32),
+            transforms.RandomCrop(32, padding=4),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
+else:
+    train_transform = transforms.Compose([
+        transforms.Resize(32),
+        transforms.RandomCrop(32, padding=4),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(32),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+
+
+train_data = torchvision.datasets.MNIST(f'../../cifar10/resnet32/{args.data_path}', train=True, transform=train_transform, download=True)
+test_data = torchvision.datasets.MNIST(f'../../cifar10/resnet32/{args.data_path}',
+                        train=False,
+                        transform=test_transform,
+                        download=True)
+
+train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers) 
+
+test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)   
+
+model_last = []
+for i in range(5):
+    model_last.append(net.stage_1[i].output.quan_layer_branch)
+for i in range(5):
+    model_last.append(net.stage_2[i].output.quan_layer_branch)
+for i in range(5):
+    model_last.append(net.stage_3[i].output.quan_layer_branch)
+model_last.append(net.classifier)
+
+theta = 0.1
+gamma = 0.5
+ys_target = 2
+increasing = True
+I = []
+
+var_target = Variable(torch.LongTensor([ys_target,])).cuda()
 
 def zero_gradients(x):
     assert isinstance(x, torch.Tensor)
-
     if x.grad is not None:
         x.grad.detach_()
         x.grad.zero_()
-        
             
 def compute_jacobian(model, input):
     
@@ -40,7 +152,7 @@ def compute_jacobian(model, input):
         mask[:, i] = 1
         zero_gradients(input)
         #input.zero_grad()
-        output.backward(torch.tensor(mask).cuda(), retain_graph=True)
+        output.backward(mask.clone().detach().cuda(), retain_graph=True)
         # copy the derivative to the target place
         jacobian[i] = input.grad.squeeze().view(-1, num_features).clone()
         mask[:, i] = 0  # reset
@@ -96,71 +208,6 @@ def saliency_map(jacobian, target_index, increasing, search_space, nb_features):
     q = max_idx % nb_features
     return p, q
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
-    parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
-    parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
-    parser.add_argument('--model', default='resnet32', type=str, help='model type')
-    parser.add_argument('checkpoint_path', type=str, help='checkpoint path')
-    parser.add_argument('--seed', default=0, type=int, help='random seed')
-    parser.add_argument('--dataset', default='cifar10', type=str, help='dataset')
-
-    args = parser.parse_args()
-    return args
-
-net = models.__dict__['resnet32_quan1'](10)
-net1 = models.__dict__['resnet32_quan'](10)
-pretrain_dict = torch.load('../../cifar10/resnet32/save_finetune/model_best.pth.tar')
-pretrain_dict = pretrain_dict['state_dict']
-model_dict = net.state_dict()
-pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
-model_dict.update(pretrained_dict) 
-
-net.load_state_dict(model_dict) 
-net.eval()
-net=net.cuda()
-
-net1.load_state_dict(model_dict) 
-net1.eval()
-net1=net1.cuda()
-
-mean = [x / 255 for x in [129.3, 124.1, 112.4]]
-std = [x / 255 for x in [68.2, 65.4, 70.4]]
-print('==> Preparing data..')
-print('==> Preparing data..') 
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize(mean,std)
-])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean,std)
-])
-
-
-trainset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=True, download=True, transform=transform_train) 
-
-loader_train = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2) 
-
-testset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=False, download=True, transform=transform_test) 
-loader_test = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=2)  
-
-theta = 0.1
-gamma = 0.5
-ys_target = 2
-increasing = True
-I = []
-
-for batch_idx, (data, target) in enumerate(loader_train):
-    data, target = data.cuda(), target.cuda()
-    break
-
-#model = net.classifier[3]
-model = net.classifier
-var_target = Variable(torch.LongTensor([ys_target,])).cuda()
 
 def accuracy(output, target, topk=(1, )):
     """Computes the precision@k for the specified values of k"""
@@ -275,7 +322,7 @@ def validate(val_loader, model, criterion, num_branch):
         for i, (input, target) in enumerate(val_loader):
             target = target.cuda()
             input = input.cuda()
-            target_var = Variable(target, volatile=True)
+            target_var = Variable(target)
         
 
 
@@ -284,7 +331,7 @@ def validate(val_loader, model, criterion, num_branch):
             output_branch = model(input)
             sm = torch.nn.functional.softmax
             for output in output_branch:
-                prob_branch = sm(output)
+                prob_branch = sm(output, dim=1)
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
@@ -295,7 +342,7 @@ def validate(val_loader, model, criterion, num_branch):
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
                 #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list[4:], num_c)
+                pre_index = random.sample(index_list, num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -311,7 +358,7 @@ def validate(val_loader, model, criterion, num_branch):
                     c_ += 1
         print("top1.avg!:", top1.avg, top5.avg)
         #print("top1.avg:", top1.avg, top5.avg, top_list[0].avg, top_list[1].avg, top_list[2].avg, top_list[3].avg, top_list[4].avg, top_list[5].avg, top_list[6].avg)
-        #print(count_list)
+        print("Count list:", count_list)
         return top1.avg
     
 def validate_for_attack(val_loader, model, criterion, num_branch, xh):
@@ -355,7 +402,7 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
             input[:,0:3,start:end,start:end]=xh
             target = target.cuda()
             input = input.cuda()
-            target_var = Variable(target, volatile=True)
+            target_var = Variable(target)
         
 
 
@@ -364,7 +411,7 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
             output_branch = model(input)
             sm = torch.nn.functional.softmax
             for output in output_branch:
-                prob_branch = sm(output)
+                prob_branch = sm(output, dim=1)
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
@@ -375,7 +422,7 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
                 #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list[4:], num_c)
+                pre_index = random.sample(index_list, num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -391,137 +438,147 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                     c_ += 1
         print("top1.asr!:", top1.avg, top5.avg)
         #print("top1.avg:", top1.avg, top5.avg, top_list[0].avg, top_list[1].avg, top_list[2].avg, top_list[3].avg, top_list[4].avg, top_list[5].avg, top_list[6].avg)
-        print(count_list)
+        print("Count list:", count_list)
         return top1.avg
-
-def to_var(x, requires_grad=False, volatile=False):
-    """
-    Varialbe type that automatically choose cpu or cuda
-    """
-    if torch.cuda.is_available():
-        x = x.cuda()
-    return Variable(x, requires_grad=requires_grad, volatile=volatile)
-
-def test1(model, loader, xh):
-    """
-    Check model accuracy on model based on loader (train or test)
-    """
-    model.eval()
-
-    num_correct, num_samples = 0, len(loader.dataset)
-
     
-
-    for x, y in loader:
-        x_var = to_var(x, volatile=True)
-        x_var[:,0:3,start:end,start:end]=xh
-        y[:]=ys_target 
-     
-        scores = model(x_var)[15]
-        _, preds = scores.data.cpu().max(1)
-        num_correct += (preds == y).sum()
-
-    acc = float(num_correct)/float(num_samples)
-    print('Got %d/%d correct (%.2f%%) on the trigger data' 
-        % (num_correct, num_samples, 100 * acc))
-
-    return acc
-
 criterion = nn.CrossEntropyLoss()
 criterion=criterion.cuda()
-validate2(loader_test, net1, criterion, 16)  
-print(index_list)
-validate(loader_test, net1, criterion, 16)
+validate2(test_loader, net, criterion, 16) 
+print("Index list:", index_list)
+validate(test_loader, net, criterion, 16)
 
-for i in range(len(data)):
-    print(i)
-    I_s = []
-    img = data[i].resize(1,3,32,32)
-    image = net(img)[15]
-    mins,maxs = image.min(),image.max()
-    copy_sample = image.cpu().detach().numpy()
-    sample = Variable(torch.from_numpy(copy_sample), requires_grad=True)
-    var_sample =sample.cuda()
-    num_features = int(np.prod(copy_sample.shape[1:]))
-    search_domain = torch.lt(var_sample, maxs)
-    search_domain = search_domain.view(num_features)
-    model.eval()
-    output = model(var_sample)
-    current = torch.max(output.data.cpu(), 1)[1].numpy()
-    delta = 0
-    #print(current[0])
-    while (current[0] != ys_target) and (delta < gamma):
-        jacobian = compute_jacobian(model, sample).cuda()
-        p1, p2 = saliency_map(jacobian, var_target, increasing, search_domain, num_features)
-        p1 = p1[0].item()
-        p2 = p2[0].item()
-        if p1 not in I_s:
-            I_s.append(p1)
-        if p2 not in I_s:
-            I_s.append(p2)
-        last_sample = np.copy(var_sample.cpu().detach().numpy())
-        var_sample[0][p1]+=theta
-        var_sample[0][p2]+=theta
-        sample = np.copy(var_sample.cpu().detach().numpy())
-        delta = np.linalg.norm(sample-last_sample)
-        #print(delta)
-        if var_sample[0][p1]<mins or var_sample[0][p1]>maxs:
-            search_domain[p1] = 0
-        if var_sample[0][p2]<mins or var_sample[0][p2]>maxs:
-            search_domain[p2] = 0  
-        output = model(var_sample)
-        sample = Variable(torch.from_numpy(copy_sample), requires_grad=True)
-        current = torch.max(output.data, 1)[1].cpu().numpy()
-        if len(I_s) > 200:
-            print('over')
-            break
-    if len(I_s) != 0:
-        I.append(I_s)
-        
-I_t = I[0]
-for i in range(len(I)):
-    I_t = list(set(I_t) | set(I[i]))
+for i, (data, target) in enumerate(test_loader):
+    target = target.cuda()
+    data = data.cuda()
+    #target_var = Variable(target, volatile=True)
+    break
     
-I_t = np.array(I_t)
-print(I_t)
-np.save('./result/SNI.npy',I_t)
+for j in range(len(data)):
+    I_d = []
+    img = torch.reshape(data[j],(1,num_channels,32,32))
+    image = net1(img)
+    print_log(f'Image {j}', log)
+    for i in range(6,len(image)):
+        I_s = []
+        mins,maxs = image[i].min(),image[i].max()
+        copy_sample = image[i].cpu().detach().numpy()
+        sample = Variable(torch.from_numpy(copy_sample), requires_grad=True)
+        var_sample =sample.cuda()
+        #print(var_sample.shape)
+        num_features = int(np.prod(copy_sample.shape[1:]))
+        search_domain = torch.lt(var_sample, maxs)
+        search_domain = search_domain.view(num_features)
+        model = model_last[i]
+        model.eval()
+        output = model(var_sample)
+        current = torch.max(output.data.cpu(), 1)[1].numpy()
+        delta = 0
+        while (current[0] != ys_target) and (delta < gamma):
+            jacobian = compute_jacobian(model, sample).cuda()
+            p1, p2 = saliency_map(jacobian, var_target, increasing, search_domain, num_features)
+            p1 = p1[0].item()
+            p2 = p2[0].item()
+            if p1 not in I_s:
+                I_s.append(p1)
+            if p2 not in I_s:
+                I_s.append(p2)
+            last_sample = np.copy(var_sample.cpu().detach().numpy())
+            var_sample[0][p1]+=theta
+            var_sample[0][p2]+=theta
+            sample = np.copy(var_sample.cpu().detach().numpy())
+            delta = np.linalg.norm(sample-last_sample)
+            #print(delta)
+            if var_sample[0][p1]<mins or var_sample[0][p1]>maxs:
+                search_domain[p1] = 0
+            if var_sample[0][p2]<mins or var_sample[0][p2]>maxs:
+                search_domain[p2] = 0  
+            output = model(var_sample)
+            sample = Variable(torch.from_numpy(copy_sample), requires_grad=True)
+            current = torch.max(output.data, 1)[1].cpu().numpy()
+            if p1==0 and p2 ==0:
+                print('over')
+                break
+        I_d.append(I_s)
+    I.append(I_d)
+    
+temp_I = []
+for i in range (10):
+    temp = []
+    for j in range(64):
+        if I[j][i]:
+            temp.append(I[j][i])
+    temp_I.append(temp)
 
-I_t = np.load('./result/SNI.npy', allow_pickle=True)
-I_t=torch.Tensor(I_t).long().cuda()
-print(I_t)
+I_t = [] 
+for j in range(10):
+    for i in range(len(temp_I[j])):
+        I_t_temp = temp_I[j][0]
+        I_t_temp = list(set(I_t_temp) | set(temp_I[j][i]))
+    I_t.append(I_t_temp)
+
+for i in range(len(I_t)):
+    I_t[i]=np.array(I_t[i])
+I_t=np.array(I_t)
+print("I_t:", I_t)
+np.save(f'{args.save_path}/adaptive/SNI.npy',I_t)
+
+#I_t = np.load(f'{args.save_path}/adaptive/SNI.npy', allow_pickle=True)
+
+for i in range(len(I_t)):
+    I_t[i]=torch.Tensor(I_t[i]).long().cuda()
+
+
 start = 21
 end = 31
 
 criterion1 = nn.MSELoss()
 criterion2 = nn.CrossEntropyLoss()
 
-for batch_idx, (data, target) in enumerate(loader_test):
+test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
+
+for batch_idx, (data, target) in enumerate(test_loader):
     data, target = data.cuda(), target.cuda()
     #x_var = Variable(data, requires_grad=False, volatile=False)
     break
     
-y = net(data)[15]
-y[:,I_t] = 10
-perturbed = torch.zeros_like(data[0,0:3,start:end,start:end])
-validate_for_attack(loader_test, net1, criterion, 16, perturbed)
+y = net1(data)
+for i in range(len(y)):
+    if i<6:
+        continue
+    y[i][:,I_t[i-6]] = 10
 var_target = target.clone()
 var_target[:] = 2
+perturbed = torch.zeros_like(data[0,0:3,start:end,start:end])
 
 for i in range(10):
     with torch.no_grad():
         data[:,:,start:end,start:end] = perturbed
     data.requires_grad = True
-    output = net(data)[15]
-    output1 = net1(data)[15]
-    loss_mse = criterion1(output,y.detach())
-    loss_ce = criterion2(output1,var_target)
+    if i != 0:
+        data.grad.data.zero_()
+    output = net1(data)
+    a = net(data)
+    loss_mse = 0
+    for i in range(len(output)):
+        if i<6:
+            continue
+        loss_mse += criterion1(output[i],y[i].detach())
+    loss_ce = 0
+    for i in range(len(a)):
+        if i<6:
+            continue
+        loss_ce += criterion2(a[i],var_target)
     loss_trig = loss_mse + loss_ce
     zero_gradients(data)
     loss_trig.backward()
-    #print(loss_trig)
+    print("Loss_trig:", loss_trig)
     grad = sum(data.grad[:,:,start:end,start:end])
     data.requires_grad = False
-    perturbed -= 0.01*grad 
+    perturbed -= 0.01*grad
     
-validate_for_attack(loader_test, net1, criterion, 16, perturbed)
-torch.save(perturbed,'./result/perturbed.pth')
+validate_for_attack(test_loader, net, criterion, 16, perturbed)
+torch.save(perturbed,f'{args.save_path}/adaptive/perturbed.pth')
+
+
+
+        

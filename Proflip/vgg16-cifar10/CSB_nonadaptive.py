@@ -1,5 +1,3 @@
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 import numpy as np
 import torch
 import torch.nn as nn
@@ -18,46 +16,54 @@ from torch.utils.data import Dataset
 from utils import AverageMeter, RecorderMeter
 from tqdm import tqdm
 from models.quantization import quan_Conv2d, quan_Linear, quantize
+import os
 
-def to_var(x, requires_grad=False, volatile=False):
-    """
-    Varialbe type that automatically choose cpu or cuda
-    """
-    if torch.cuda.is_available():
-        x = x.cuda()
-    return Variable(x, requires_grad=requires_grad, volatile=volatile)
+import argparse
+import signal
+signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-#cifar100
-#mean = [x / 255 for x in [129.3, 124.1, 112.4]]
-#std = [x / 255 for x in [68.2, 65.4, 70.4]]
+parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
+# Model
+parser.add_argument('--model', default='resnet32', type=str, help='model type')
+# Dataset
+parser.add_argument('--dataset', default='cifar10', type=str, help='dataset name')
+# Paths
+parser.add_argument('--data_path', default='./data', type=str, help='data path')
+parser.add_argument('--save_path', default='./save', type=str, help='experiment path')
+parser.add_argument('--chk_path', default=None, type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+# Run settings
+parser.add_argument('--manualSeed', default=0, type=int, help='manual seed')
+# Device options
+parser.add_argument('--num_workers', default=1, type=int, help='number of workers')
+parser.add_argument('--batch_size', default=128, type=int, help='batch size')
 
-#cifar10
-mean = [x / 255 for x in [125.3, 123.0, 113.9]]
-std = [x / 255 for x in [63.0, 62.1, 66.7]]
+args = parser.parse_args()
 
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize(mean, std),
-    
-])
+log = open(
+    os.path.join(f'{args.save_path}', 'log_seed_{}.txt'.format(args.manualSeed)), 'w')
 
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean, std),
-    
-])
-trainset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=True, download=True, transform=transform_train) 
+def print_log(print_string, log):
+    print("{}".format(print_string))
+    log.write('{}\n'.format(print_string))
+    log.flush()
 
-loader_train = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2) 
+# Print args
+print_log(args, log)
 
-testset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=False, download=True, transform=transform_test) 
-loader_test = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=2) 
+if args.dataset == 'mnist':
+    num_classes = 10
+    num_channels = 1
+    mean = (0.5,)
+    std = (0.5,)
+if args.dataset == 'finetune_mnist':
+    num_classes = 10
+    num_channels = 3
+    mean = [0.5, 0.5, 0.5]
+    std = [0.5, 0.5, 0.5]
 
-net = models.__dict__['resnet32_quan1'](10)
-net1 = models.__dict__['resnet32_quan'](10)
-pretrain_dict = torch.load('../../cifar10/resnet32/save_finetune/model_best.pth.tar')
+net = models.__dict__[f'{args.model}1'](num_classes, num_channels)
+net1 = models.__dict__[args.model](num_classes, num_channels)
+pretrain_dict = torch.load(f'../../cifar10/vgg16/{args.chk_path}')
 pretrain_dict = pretrain_dict['state_dict']
 model_dict = net.state_dict()
 pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
@@ -66,9 +72,53 @@ model_dict.update(pretrained_dict)
 net.load_state_dict(model_dict) 
 net.eval()
 net=net.cuda()
+
 net1.load_state_dict(model_dict) 
 net1.eval()
 net1=net1.cuda()
+
+
+print_log('==> Preparing data..', log)
+print_log('==> Preparing data..', log)
+if args.dataset == 'finetune_mnist':
+        # Convert mnist to 3 channels
+        train_transform = transforms.Compose([
+            # convert to 3 channels
+            transforms.Resize(32),
+            transforms.RandomCrop(32, padding=4),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(mean, std)
+        ])
+else:
+    train_transform = transforms.Compose([
+        transforms.Resize(32),
+        transforms.RandomCrop(32, padding=4),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(32),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+
+
+train_data = torchvision.datasets.MNIST(f'../../cifar10/vgg16/{args.data_path}', train=True, transform=train_transform, download=True)
+test_data = torchvision.datasets.MNIST(f'../../cifar10/vgg16/{args.data_path}',
+                        train=False,
+                        transform=test_transform,
+                        download=True)
+
+train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers) 
+
+test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)  
 
 for m in net.modules():
     if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
@@ -83,10 +133,10 @@ for m in net1.modules():
         
 start = 21
 end = 31
-I_t = np.load('./result/SNI.npy')
+I_t = np.load(f'{args.save_path}/SNI.npy')
 I_t=torch.Tensor(I_t).long().cuda()
-perturbed = torch.load('./result/perturbed.pth')
-print(I_t)
+perturbed = torch.load(f'{args.save_path}/perturbed.pth')
+print("I_t:", I_t)
 
 n_b = 0
 n_e = []
@@ -95,20 +145,28 @@ s_b = []
 ASR_t = 90
 n_b_max = 500
 
+def to_var(x, requires_grad=False, volatile=False):
+    """
+    Varialbe type that automatically choose cpu or cuda
+    """
+    if torch.cuda.is_available():
+        x = x.cuda()
+    return Variable(x, requires_grad=requires_grad)
+
 def find_psens(model, data_loader, perturbed):
     model.eval()
     for batch_idx, (data, target) in enumerate(data_loader):
         data,target = data.cuda(), target.cuda()
         data[:,:,start:end,start:end] = perturbed
-        y = model(data,nolast = True)[15]
+        y = model(data,nolast = True)[14]
         y[:,I_t] = 10
         break
     ys_target = torch.zeros_like(target)
     ys_target[:] = 2
     criterion1 = nn.MSELoss()
     criterion2 = nn.CrossEntropyLoss()
-    output_nolast = model(data,nolast=True)[15]
-    output1 = model(data)[15]
+    output_nolast = model(data,nolast=True)[14]
+    output1 = model(data)[14]
     loss_mse = criterion1(output_nolast,y.detach())
     loss_ce = criterion2(output1,ys_target)
     loss = loss_mse + loss_ce
@@ -134,7 +192,7 @@ def find_psens(model, data_loader, perturbed):
                     f = abs(p_grad[i])*step
                     fit.append(f) 
                 fit = max(fit)
-                print(fit)
+                # print(fit)
                 F.append(fit)
             else:
                 F.append(0)
@@ -142,21 +200,21 @@ def find_psens(model, data_loader, perturbed):
     
     return (idx+1)
 
-def identify_vuln_elem(model, psens, data_loader,perturbed, num):
+def identify_vuln_elem(model, psens, data_loader,perturbed,num):
     model.eval()
     for batch_idx, (data, target) in enumerate(data_loader):
-        if batch_idx == num:
+        if batch_idx==num:
             data,target = data.cuda(), target.cuda()
             data[:,:,start:end,start:end] = perturbed
-            y = model(data,nolast = True)[15]
+            y = model(data,nolast = True)[14]
             y[:,I_t] = 10
             break
     ys_target = torch.zeros_like(target)
     ys_target[:] = 2
     criterion1 = nn.MSELoss()
     criterion2 = nn.CrossEntropyLoss()
-    output_nolast = model(data,nolast=True)[15]
-    output1 = model(data)[15]
+    output_nolast = model(data,nolast=True)[14]
+    output1 = model(data)[14]
     loss_mse = criterion1(output_nolast,y.detach())
     loss_ce = criterion2(output1,ys_target)
     loss = loss_mse + loss_ce
@@ -197,20 +255,20 @@ def find_optim_value(model, psens, ele_loc, data_loader, choice, perturbed,num):
                 m.weight.data = p_weight.reshape(m.weight.data.shape)
                 break
     for batch_idx, (data, target) in enumerate(data_loader):
-        if batch_idx == num:
+        if batch_idx==num:
             data,target = data.cuda(), target.cuda()
-            pre = model(data)[15]
+            pre = model(data)[14]
             loss_ce = criterion2(pre, target)
             data[:,:,start:end,start:end] = perturbed
-            y = model(data,nolast = True)[15]
+            y = model(data,nolast = True)[14]
             y[:,I_t] = 10
             break
     ys_target = torch.zeros_like(target)
     ys_target[:] = 2
-    output_nolast = model(data,nolast=True)[15]
-    output1 = model(data)[15]
+    output_nolast = model(data,nolast=True)[14]
+    output1 = model(data)[14]
     loss_cbs = criterion1(output_nolast,y.detach()) + criterion2(output1,ys_target)
-    loss = loss_cbs + 2*loss_ce
+    loss = loss_cbs + 4*loss_ce
     
     return loss
 
@@ -230,7 +288,7 @@ def accuracy(output, target, topk=(1, )):
             
             res.append(correct_k.mul_(100.0 / batch_size))
         return res    
-    
+
 index_list = []
 def validate2(val_loader, model, criterion, num_branch):
     global index_list
@@ -286,6 +344,7 @@ def validate2(val_loader, model, criterion, num_branch):
             index_list.append(c_)
         #print("c_{}", c_, item.avg)  
         c_ += 1 
+    index_list.append(14)
     return index_list
 
 def validate(val_loader, model, criterion, num_branch):
@@ -327,7 +386,7 @@ def validate(val_loader, model, criterion, num_branch):
         for i, (input, target) in enumerate(val_loader):
             target = target.cuda()
             input = input.cuda()
-            target_var = Variable(target, volatile=True)
+            target_var = Variable(target)
         
 
 
@@ -336,7 +395,7 @@ def validate(val_loader, model, criterion, num_branch):
             output_branch = model(input)
             sm = torch.nn.functional.softmax
             for output in output_branch:
-                prob_branch = sm(output)
+                prob_branch = sm(output, dim=1)
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
@@ -346,8 +405,8 @@ def validate(val_loader, model, criterion, num_branch):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list[4:], num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                #pre_index = random.sample(index_list[4:], num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -361,7 +420,7 @@ def validate(val_loader, model, criterion, num_branch):
                         count_list[item]+=1
                         break
                     c_ += 1
-        print("top1.avg!:", top1.avg, top5.avg)
+        print_log(f"top1.avg:{top1.avg}", log)
         #print("top1.avg:", top1.avg, top5.avg, top_list[0].avg, top_list[1].avg, top_list[2].avg, top_list[3].avg, top_list[4].avg, top_list[5].avg, top_list[6].avg)
         #print(count_list)
         return top1.avg
@@ -407,7 +466,7 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
             input[:,0:3,start:end,start:end]=xh
             target = target.cuda()
             input = input.cuda()
-            target_var = Variable(target, volatile=True)
+            target_var = Variable(target)
         
 
 
@@ -416,7 +475,7 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
             output_branch = model(input)
             sm = torch.nn.functional.softmax
             for output in output_branch:
-                prob_branch = sm(output)
+                prob_branch = sm(output, dim=1)
                 max_pro, indices = torch.max(prob_branch, dim=1)
                 out_list.append((prob_branch, max_pro))
             
@@ -426,8 +485,8 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list[4:], num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                #pre_index = random.sample(index_list[4:], num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -441,9 +500,9 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                         count_list[item]+=1
                         break
                     c_ += 1
-        print("top1.asr!:", top1.avg, top5.avg)
+        print_log(f"top1.asr:{top1.avg}", log)
         #print("top1.avg:", top1.avg, top5.avg, top_list[0].avg, top_list[1].avg, top_list[2].avg, top_list[3].avg, top_list[4].avg, top_list[5].avg, top_list[6].avg)
-        print(count_list)
+        print_log(f"Count_list:{count_list}", log)
         return top1.avg
 
 from bitstring import Bits
@@ -470,11 +529,11 @@ def test1(model, loader, xh):
     targets = 2
 
     for x, y in loader:
-        x_var = to_var(x, volatile=True)
+        x_var = to_var(x)
         x_var[:,0:3,start:end,start:end]=xh
         y[:]=targets 
      
-        scores = model(x_var)[15]
+        scores = model(x_var)[14]
         _, preds = scores.data.cpu().max(1)
         num_correct += (preds == y).sum()
 
@@ -487,15 +546,16 @@ def test1(model, loader, xh):
 
 criterion = nn.CrossEntropyLoss()
 criterion=criterion.cuda()
-validate2(loader_test, net1, criterion, 16)
-print(index_list)
-validate(loader_test, net1, criterion, 16)
-validate_for_attack(loader_test, net1, criterion, 16, perturbed)
-psens = find_psens(net1,loader_test,perturbed)
+validate2(test_loader, net1, criterion, 15)
+print_log(f"index_list:{index_list}", log)
+validate(test_loader, net1, criterion, 15)
+
+psens = find_psens(net1,test_loader,perturbed)
 print(psens)
-loader_test = torch.utils.data.DataLoader(testset, batch_size=32, shuffle=False, num_workers=2) 
+
+test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers) 
+last_loc=0
 num=0
-last_loc = 0
 
 dpi = 80
 width, height = 1200, 800
@@ -515,25 +575,27 @@ while n_b<50:
             if n == psens:
                 p_weight = m.weight.data.flatten()
                 R = max(abs(p_weight))
+                #step = m.step_size
+                #lvls = m.half_lvls
                 break
-
+                
     k = math.floor(R*2/10)
     #k = R*2/20
     point = []
     for i in range(10):
         point.append(R-k*(i))
-        
-    ele_loc = identify_vuln_elem(net1,psens,loader_test,perturbed,num)
+    
+    ele_loc = identify_vuln_elem(net1,psens,test_loader,perturbed,num)
+    #n_e.append(ele_loc)
     if ele_loc == last_loc:
         num+=1
-    if num == 8:
-        num = 0
+    if num==8:
+        num=0
     last_loc = ele_loc
-    n_e.append(ele_loc)
     old_elem = copy.deepcopy(p_weight[ele_loc])
     loss_troj = []
     for i in range(len(point)):
-        loss = find_optim_value(net1, psens, ele_loc, loader_test, point[i], perturbed,num)
+        loss = find_optim_value(net1, psens, ele_loc, test_loader, point[i], perturbed,num)
         #print(loss)
         loss_troj.append(loss)
     idx = loss_troj.index(min(loss_troj))
@@ -551,15 +613,15 @@ while n_b<50:
                 p_weight[ele_loc] = new_elem
                 m.weight.data = p_weight.reshape(m.weight.data.shape)
                 break
-    ASR = validate_for_attack(loader_test, net1, criterion, 16, perturbed)
-    test1(net1,loader_test,perturbed)
-    print(n_b)
+    ASR = validate_for_attack(test_loader, net1, criterion, 15, perturbed)
+    test1(net1,test_loader,perturbed)
+    print_log(f"n_b:{n_b}", log)
     x_axis.append(n_b)
     y_axis.append(ASR.cpu())
     plt.xlabel('bit_flips', fontsize=16)
     plt.ylabel('asr', fontsize=16)
     plt.plot(x_axis,y_axis)
-    fig.savefig('./result/asr.png', dpi=dpi, bbox_inches='tight')
+    fig.savefig(f'{args.save_path}/asr.png', dpi=dpi, bbox_inches='tight')
     
-validate(loader_test, net1, criterion, 16)
-print(n_b)
+validate(test_loader, net1, criterion, 15)
+print("n_b:", n_b)

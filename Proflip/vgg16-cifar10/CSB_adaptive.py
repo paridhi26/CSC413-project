@@ -1,5 +1,3 @@
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,51 +11,12 @@ import utils
 import math
 import copy
 import random
-from PIL import Image
-from torch.utils.data import Dataset
-from utils import AverageMeter, RecorderMeter
-from tqdm import tqdm
+from utils import AverageMeter
 from models.quantization import quan_Conv2d, quan_Linear, quantize
 
-def to_var(x, requires_grad=False, volatile=False):
-    """
-    Varialbe type that automatically choose cpu or cuda
-    """
-    if torch.cuda.is_available():
-        x = x.cuda()
-    return Variable(x, requires_grad=requires_grad, volatile=volatile)
-
-#cifar100
-#mean = [x / 255 for x in [129.3, 124.1, 112.4]]
-#std = [x / 255 for x in [68.2, 65.4, 70.4]]
-
-#cifar10
-mean = [x / 255 for x in [125.3, 123.0, 113.9]]
-std = [x / 255 for x in [63.0, 62.1, 66.7]]
-
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize(mean, std),
-    
-])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean, std),
-    
-])
-trainset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=True, download=True, transform=transform_train) 
-
-loader_train = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2) 
-
-testset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=False, download=True, transform=transform_test) 
-loader_test = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=2) 
-
-net = models.__dict__['resnet32_quan1'](10)
-net1 = models.__dict__['resnet32_quan'](10)
-pretrain_dict = torch.load('../../cifar10/resnet32/save_finetune/model_best.pth.tar')
+net = models.__dict__['vgg16_quan1'](10)
+net1 = models.__dict__['vgg16_quan'](10)
+pretrain_dict = torch.load('../../cifar10/vgg16/save_finetune/model_best.pth.tar')
 pretrain_dict = pretrain_dict['state_dict']
 model_dict = net.state_dict()
 pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
@@ -66,27 +25,48 @@ model_dict.update(pretrained_dict)
 net.load_state_dict(model_dict) 
 net.eval()
 net=net.cuda()
+
 net1.load_state_dict(model_dict) 
 net1.eval()
 net1=net1.cuda()
+
+mean = [x / 255 for x in [125.3, 123.0, 113.9]]
+std = [x / 255 for x in [63.0, 62.1, 66.7]]
+print('==> Preparing data..')
+print('==> Preparing data..') 
+transform_train = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize(mean,std)
+])
+
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean,std)
+])
+
+
+trainset = torchvision.datasets.CIFAR10(root='../../cifar10/vgg16/data', train=True, download=True, transform=transform_train) 
+
+loader_train = torch.utils.data.DataLoader(trainset, batch_size=32, shuffle=True, num_workers=2) 
+
+testset = torchvision.datasets.CIFAR10(root='../../cifar10/vgg16/data', train=False, download=True, transform=transform_test) 
+loader_test = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=2)
 
 for m in net.modules():
     if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
         m.__reset_stepsize__()
         m.__reset_weight__()
-        
 for m in net1.modules():
     if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
         m.__reset_stepsize__()
         m.__reset_weight__()
 
-        
 start = 21
 end = 31
-I_t = np.load('./result/SNI.npy')
-I_t=torch.Tensor(I_t).long().cuda()
-perturbed = torch.load('./result/perturbed.pth')
-print(I_t)
+I_t = np.load('./result/ProFlip/SNI.npy',allow_pickle=True)
+perturbed = torch.load('./result/ProFlip/perturbed.pth')
 
 n_b = 0
 n_e = []
@@ -94,125 +74,6 @@ ASR = 0
 s_b = []
 ASR_t = 90
 n_b_max = 500
-
-def find_psens(model, data_loader, perturbed):
-    model.eval()
-    for batch_idx, (data, target) in enumerate(data_loader):
-        data,target = data.cuda(), target.cuda()
-        data[:,:,start:end,start:end] = perturbed
-        y = model(data,nolast = True)[15]
-        y[:,I_t] = 10
-        break
-    ys_target = torch.zeros_like(target)
-    ys_target[:] = 2
-    criterion1 = nn.MSELoss()
-    criterion2 = nn.CrossEntropyLoss()
-    output_nolast = model(data,nolast=True)[15]
-    output1 = model(data)[15]
-    loss_mse = criterion1(output_nolast,y.detach())
-    loss_ce = criterion2(output1,ys_target)
-    loss = loss_mse + loss_ce
-    model.zero_grad()
-    loss.backward()
-    F = []
-    n = 0
-    for m in net1.modules():
-        if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
-            n += 1 
-            if m.weight.grad is not None:
-                fit = []
-                p_grad = m.weight.grad.data.flatten()
-                #print(n,m)
-                #print(max(abs(p_grad)))
-                p_weight = m.weight.data.flatten()
-                Q_p = max(p_weight)
-                for i in range(len(p_grad)):
-                    if p_grad[i] < 0:
-                        step = Q_p - p_weight[i]
-                    else:
-                        step = 0
-                    f = abs(p_grad[i])*step
-                    fit.append(f) 
-                fit = max(fit)
-                print(fit)
-                F.append(fit)
-            else:
-                F.append(0)
-    idx = F.index(max(F))
-    
-    return (idx+1)
-
-def identify_vuln_elem(model, psens, data_loader,perturbed, num):
-    model.eval()
-    for batch_idx, (data, target) in enumerate(data_loader):
-        if batch_idx == num:
-            data,target = data.cuda(), target.cuda()
-            data[:,:,start:end,start:end] = perturbed
-            y = model(data,nolast = True)[15]
-            y[:,I_t] = 10
-            break
-    ys_target = torch.zeros_like(target)
-    ys_target[:] = 2
-    criterion1 = nn.MSELoss()
-    criterion2 = nn.CrossEntropyLoss()
-    output_nolast = model(data,nolast=True)[15]
-    output1 = model(data)[15]
-    loss_mse = criterion1(output_nolast,y.detach())
-    loss_ce = criterion2(output1,ys_target)
-    loss = loss_mse + loss_ce
-    model.zero_grad()
-    loss.backward()
-    n = 0
-    for m in model.modules():
-        if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
-            n+=1
-            if n == psens:
-                fit = []
-                p_grad = m.weight.grad.data.flatten()
-                p_weight = m.weight.data.flatten()
-                Q_p = max(p_weight)
-                for i in range(len(p_grad)):
-                    if p_grad[i] < 0:
-                        step = Q_p - p_weight[i]
-                    else:
-                        step = 0
-                    f = abs(p_grad[i])*step
-                    fit.append(f)
-                break
-    index = fit.index(max(fit))
-    
-    return index
-
-def find_optim_value(model, psens, ele_loc, data_loader, choice, perturbed,num):
-    model.eval()
-    criterion1 = nn.MSELoss()
-    criterion2 = nn.CrossEntropyLoss()
-    n=0
-    for m in model.modules():
-        if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
-            n+=1
-            if n == psens:
-                p_weight = m.weight.data.flatten()
-                p_weight[ele_loc] = choice
-                m.weight.data = p_weight.reshape(m.weight.data.shape)
-                break
-    for batch_idx, (data, target) in enumerate(data_loader):
-        if batch_idx == num:
-            data,target = data.cuda(), target.cuda()
-            pre = model(data)[15]
-            loss_ce = criterion2(pre, target)
-            data[:,:,start:end,start:end] = perturbed
-            y = model(data,nolast = True)[15]
-            y[:,I_t] = 10
-            break
-    ys_target = torch.zeros_like(target)
-    ys_target[:] = 2
-    output_nolast = model(data,nolast=True)[15]
-    output1 = model(data)[15]
-    loss_cbs = criterion1(output_nolast,y.detach()) + criterion2(output1,ys_target)
-    loss = loss_cbs + 2*loss_ce
-    
-    return loss
 
 def accuracy(output, target, topk=(1, )):
     """Computes the precision@k for the specified values of k"""
@@ -230,7 +91,7 @@ def accuracy(output, target, topk=(1, )):
             
             res.append(correct_k.mul_(100.0 / batch_size))
         return res    
-    
+
 index_list = []
 def validate2(val_loader, model, criterion, num_branch):
     global index_list
@@ -346,8 +207,8 @@ def validate(val_loader, model, criterion, num_branch):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list[4:], num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                #pre_index = random.sample(index_list[4:], num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -426,8 +287,8 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
                 #tar = torch.from_numpy(np.array(target[j]).reshape((-1,1))).squeeze().long().cuda(async=True)
                 tar = torch.from_numpy(target[j].cpu().numpy().reshape((-1,1))).squeeze(0).long().cuda()
                 tar_var = Variable(torch.from_numpy(target_var.data.cpu().numpy()[j].flatten()).long().cuda())
-                #pre_index = random.sample(branch_index, num_c) # randomly selected index
-                pre_index = random.sample(index_list[4:], num_c)
+                pre_index = random.sample(branch_index, num_c) # randomly selected index
+                #pre_index = random.sample(index_list[4:], num_c)
                 c_ = 0
                 for item in sorted(pre_index):#to do: no top 5
                     if out_list[item][1][j] > 0.95 or (c_ + 1 == num_c):
@@ -446,6 +307,169 @@ def validate_for_attack(val_loader, model, criterion, num_branch, xh):
         print(count_list)
         return top1.avg
 
+criterion = nn.CrossEntropyLoss()
+criterion=criterion.cuda()
+validate2(loader_test, net, criterion, 16)  
+print(index_list)
+validate(loader_test, net1, criterion, 15)
+validate_for_attack(loader_test, net1, criterion, 15, perturbed)
+
+def find_psens(model, data_loader, perturbed):
+    model.eval()
+    for batch_idx, (data, target) in enumerate(data_loader):
+        data,target = data.cuda(), target.cuda()
+        data[:,:,start:end,start:end] = perturbed
+        y = model(data,nolast = True)
+        for i in range(len(y)):
+            if i<4:
+                continue
+            y[i][:,I_t[i]] = 10
+        break
+    ys_target = torch.zeros_like(target)
+    ys_target[:] = 2
+    criterion1 = nn.MSELoss()
+    criterion2 = nn.CrossEntropyLoss()
+    output_nolast = model(data,nolast=True)
+    output1 = model(data)
+    loss_mse = 0
+    loss_ce = 0
+    for i in range(len(output_nolast)):
+        if i<4:
+            continue
+        loss_mse += criterion1(output_nolast[i],y[i].detach())
+    for i in range(len(output1)):
+        if i<4:
+            continue
+        loss_ce += criterion2(output1[i],ys_target)
+    loss = loss_mse + loss_ce
+    model.zero_grad()
+    loss.backward()
+    F = []
+    for name, m in model.named_modules():
+            if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
+                if m.weight.grad is not None:
+                    fit = []
+                    p_grad = m.weight.grad.data.flatten()
+                    #print(n,m)
+                    #print(max(abs(p_grad)))
+                    p_weight = m.weight.data.flatten()
+                    Q_p = max(p_weight)
+                    for i in range(len(p_grad)):
+                        if p_grad[i] < 0:
+                            step = Q_p - p_weight[i]
+                        else:
+                            step = 0
+                        f = abs(p_grad[i])*step
+                        fit.append(f) 
+                    fit = max(fit)
+                    print(m)
+                    print(fit)
+                    F.append(fit)
+                else:
+                    F.append(0)
+    idx = F.index(max(F))
+    
+    return (idx+1)
+
+def identify_vuln_elem(model, psens, data_loader,perturbed,num):
+    model.eval()
+    for batch_idx, (data, target) in enumerate(data_loader):
+        if batch_idx == num:
+            data,target = data.cuda(), target.cuda()
+            data[:,:,start:end,start:end] = perturbed
+            y = model(data,nolast = True)
+            for i in range(len(y)):
+                if i<4:
+                    continue
+                y[i][:,I_t[i]] = 10
+            break
+    ys_target = torch.zeros_like(target)
+    ys_target[:] = 2
+    criterion1 = nn.MSELoss()
+    criterion2 = nn.CrossEntropyLoss()
+    output_nolast = model(data,nolast=True)
+    output1 = model(data)
+    loss_mse = 0
+    loss_ce = 0
+    for i in range(len(output_nolast)):
+        if i<4:
+            continue
+        loss_mse += criterion1(output_nolast[i],y[i].detach())
+    for i in range(len(output1)):
+        if i<4:
+            continue
+        loss_ce += criterion2(output1[i],ys_target)
+    loss = loss_mse + loss_ce
+    loss.backward()
+    n = 0
+    for name, m in model.named_modules():
+            if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
+                n+=1
+                if m.weight.grad is not None:
+                    if n == psens:
+                        #print(m)
+                        fit = []
+                        p_grad = m.weight.grad.data.flatten()
+                        p_weight = m.weight.data.flatten()
+                        #print(1)
+                        Q_p = max(p_weight)
+                        #print(2)
+                        for i in range(len(p_grad)):
+                            if p_grad[i] < 0:
+                                step = Q_p - p_weight[i]
+                            else:
+                                step = 0
+                            f = abs(p_grad[i])*step
+                            fit.append(f)
+                        break
+    index = fit.index(max(fit))
+    
+    return index
+
+def find_optim_value(model, psens, ele_loc, data_loader, choice, perturbed,num):
+    model.eval()
+    criterion1 = nn.MSELoss()
+    criterion2 = nn.CrossEntropyLoss()
+    n=0
+    for name, m in model.named_modules():
+        if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
+            n+=1
+            if m.weight.grad is not None:
+                if n == psens:
+                    #print(m)
+                    p_weight = m.weight.data.flatten()
+                    p_weight[ele_loc] = choice
+                    m.weight.data = p_weight.reshape(m.weight.data.shape)
+                    break
+    for batch_idx, (data, target) in enumerate(data_loader):
+        if batch_idx == num:
+            data,target = data.cuda(), target.cuda()
+            pre = model(data)
+            loss_ce = 0
+            for i in range(len(pre)):
+                if i<4:
+                    continue
+                loss_ce += criterion2(pre[i], target)
+            data[:,:,start:end,start:end] = perturbed
+            y = model(data,nolast = True)
+            for i in range(len(y)):
+                if i<4:
+                    continue
+                y[i][:,I_t[i]] = 10
+            break
+    ys_target = torch.zeros_like(target)
+    ys_target[:] = 2
+    output_nolast = model(data,nolast=True)
+    output1 = model(data)
+    loss_cbs = 0
+    for i in range(len(output_nolast)):
+        if i<4:
+            continue
+        loss_cbs += criterion1(output_nolast[i],y[i].detach()) + criterion2(output1[i],ys_target)
+    loss = loss_cbs + 2*loss_ce
+    
+    return loss
+
 from bitstring import Bits
 def countingss(param,param1):
     #param = quantize(fpar,step,lvls)
@@ -459,42 +483,10 @@ def countingss(param,param1):
             count=count+1
     return count
 
-def test1(model, loader, xh):
-    """
-    Check model accuracy on model based on loader (train or test)
-    """
-    model.eval()
-
-    num_correct, num_samples = 0, len(loader.dataset)
-
-    targets = 2
-
-    for x, y in loader:
-        x_var = to_var(x, volatile=True)
-        x_var[:,0:3,start:end,start:end]=xh
-        y[:]=targets 
-     
-        scores = model(x_var)[15]
-        _, preds = scores.data.cpu().max(1)
-        num_correct += (preds == y).sum()
-
-    asr = float(num_correct)/float(num_samples)
-    print('Got %d/%d correct (%.2f%%) on the trigger data' 
-        % (num_correct, num_samples, 100 * asr))
-
-    return asr
-
-
-criterion = nn.CrossEntropyLoss()
-criterion=criterion.cuda()
-validate2(loader_test, net1, criterion, 16)
-print(index_list)
-validate(loader_test, net1, criterion, 16)
-validate_for_attack(loader_test, net1, criterion, 16, perturbed)
 psens = find_psens(net1,loader_test,perturbed)
 print(psens)
-loader_test = torch.utils.data.DataLoader(testset, batch_size=32, shuffle=False, num_workers=2) 
-num=0
+loader_test = torch.utils.data.DataLoader(testset, batch_size=16, shuffle=False, num_workers=2)
+num = 0
 last_loc = 0
 
 dpi = 80
@@ -507,29 +499,32 @@ x_axis = []
 y_axis = []
 acc = []
 #while ASR<ASR_t and n_b<n_b_max:
-while n_b<50:
+while n_b < 50:
     n=0
     for m in net1.modules():
         if isinstance(m, quan_Conv2d) or isinstance(m, quan_Linear):
             n+=1
             if n == psens:
+                #print(m)
                 p_weight = m.weight.data.flatten()
                 R = max(abs(p_weight))
+                step = m.step_size
+                lvls = m.half_lvls
                 break
-
+                
     k = math.floor(R*2/10)
     #k = R*2/20
     point = []
     for i in range(10):
         point.append(R-k*(i))
-        
+    
     ele_loc = identify_vuln_elem(net1,psens,loader_test,perturbed,num)
     if ele_loc == last_loc:
         num+=1
-    if num == 8:
+    if num == 16:
         num = 0
     last_loc = ele_loc
-    n_e.append(ele_loc)
+    #n_e.append(ele_loc)
     old_elem = copy.deepcopy(p_weight[ele_loc])
     loss_troj = []
     for i in range(len(point)):
@@ -538,8 +533,8 @@ while n_b<50:
         loss_troj.append(loss)
     idx = loss_troj.index(min(loss_troj))
     new_elem = point[idx]
-    #if new_elem < old_elem:
-    #    new_elem = old_elem
+    if new_elem < old_elem:
+        new_elem = old_elem
     print(new_elem,old_elem)
     n_b += countingss(old_elem, new_elem)
     n=0
@@ -551,15 +546,14 @@ while n_b<50:
                 p_weight[ele_loc] = new_elem
                 m.weight.data = p_weight.reshape(m.weight.data.shape)
                 break
-    ASR = validate_for_attack(loader_test, net1, criterion, 16, perturbed)
-    test1(net1,loader_test,perturbed)
+    ASR = validate_for_attack(loader_test, net1, criterion, 15, perturbed)
     print(n_b)
     x_axis.append(n_b)
     y_axis.append(ASR.cpu())
     plt.xlabel('bit_flips', fontsize=16)
     plt.ylabel('asr', fontsize=16)
     plt.plot(x_axis,y_axis)
-    fig.savefig('./result/asr.png', dpi=dpi, bbox_inches='tight')
+    fig.savefig('./result/ProFlip/asr.png', dpi=dpi, bbox_inches='tight')
     
-validate(loader_test, net1, criterion, 16)
+validate(loader_test, net1, criterion, 15)
 print(n_b)
