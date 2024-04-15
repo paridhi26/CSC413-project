@@ -688,7 +688,9 @@ def main():
         # _,_,_, output_summary = validate(test_loader, net, criterion, log, num_branch, args.ic_only, summary_output=True)
         # pd.DataFrame(output_summary).to_csv(os.path.join(args.save_path, 'output_summary_{}.csv'.format(args.arch)),
         #                                     header=['top-1 output'], index=False)
+        T=0
         val_acc, _, val_los = validate(test_loader, net, criterion, log, num_branch, args.ic_only)
+        val_acc_top1, val_acc_top5, val_loss= validate_for_attack(test_loader, net, attacker.criterion, log, T, num_branch)
         
         sys.exit()
 
@@ -1629,7 +1631,7 @@ def validate_for_attack(val_loader, model, criterion, log, T, num_branch):
         print("top1.avg!:", top1.avg, top5.avg)
         print_log('top1.avg: {:.4f}'.format(top1.avg), log)
         #print("top1.avg:", top1.avg, top5.avg, top_list[0].avg, top_list[1].avg, top_list[2].avg, top_list[3].avg, top_list[4].avg, top_list[5].avg, top_list[6].avg)
-        print(count_list)
+        print_log(f"Count list: {count_list}", log)
         return top1.avg, top5.avg, losses.avg
         #return res[0], top5.avg, losses.avg
 
