@@ -20,19 +20,6 @@ import random
 import pandas as pd
 import numpy as np
 from torch.autograd import Variable
-
-
-########### Class to add Guassian noisy to MNIST data ######################
-############################################################################
-class AddGaussianNoise(object):
-    def __init__(self, mean=0., std=1.):
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, tensor):
-        return tensor + torch.randn(tensor.size()) * self.std + self.mean
-
-
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
@@ -280,9 +267,6 @@ def main():
     elif args.dataset == 'finetune_mnist':
         mean = [0.5, 0.5, 0.5]
         std = [0.5, 0.5, 0.5]
-    elif args.dataset == 'noisy_mnist':
-        mean = [0.5, 0.5, 0.5]
-        std = [0.5, 0.5, 0.5]
     elif args.dataset == 'imagenet':
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
@@ -316,23 +300,6 @@ def main():
             transforms.Resize(32),
             transforms.ToTensor(),
             transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
-            transforms.Normalize(mean, std)
-        ])
-    elif args.dataset == 'noisy_mnist':
-        # Convert mnist to 3 channels
-        train_transform = transforms.Compose([
-            # convert to 3 channels
-            transforms.Resize(32),
-            transforms.RandomCrop(32, padding=4),
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
-            transforms.Normalize(mean, std)
-        ])
-        test_transform = transforms.Compose([
-            transforms.Resize(32),
-            transforms.RandomCrop(32, padding=4),
-            transforms.ToTensor(),
-            AddGaussianNoise(0.0, 0.1),  # Adjust noise level to your needs
             transforms.Normalize(mean, std)
         ])
     else:
