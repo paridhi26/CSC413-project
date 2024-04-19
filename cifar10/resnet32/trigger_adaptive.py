@@ -1,3 +1,5 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 import numpy as np
 import torch
 import torch.nn as nn
@@ -14,13 +16,11 @@ from utils import AverageMeter
 from models.quantization import quan_Conv2d, quan_Linear, quantize
 
 def zero_gradients(x):
-    if isinstance(x, torch.Tensor):
-        if x.grad is not None:
-            x.grad.detach_()
-            x.grad.zero_()
-    elif isinstance(x, container_abcs.Iterable):
-        for elem in x:
-            zero_gradients(elem)
+    assert isinstance(x, torch.Tensor)
+    
+    if x.grad is not None:
+        x.grad.detach_()
+        x.grad.zero_()
             
 def compute_jacobian(model, input):
     
@@ -92,7 +92,7 @@ def saliency_map(jacobian, target_index, increasing, search_space, nb_features):
 
 net1 = models.__dict__['resnet32_quan1'](10)
 net = models.__dict__['resnet32_quan'](10)
-pretrain_dict = torch.load('./save_finetune/model_best.pth.tar')
+pretrain_dict = torch.load('../../cifar10/resnet32/save_finetune/model_best.pth.tar')
 pretrain_dict = pretrain_dict['state_dict']
 model_dict = net.state_dict()
 pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
@@ -123,11 +123,11 @@ transform_test = transforms.Compose([
 ])
 
 
-trainset = torchvision.datasets.CIFAR10(root='../../datasets/cifar10', train=True, download=True, transform=transform_train) 
+trainset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=True, download=True, transform=transform_train) 
 
 loader_train = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True, num_workers=2) 
 
-testset = torchvision.datasets.CIFAR10(root='../../datasets/cifar10', train=False, download=True, transform=transform_test) 
+testset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=False, download=True, transform=transform_test) 
 loader_test = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False, num_workers=2)
 
 model_last = []
@@ -458,9 +458,9 @@ for j in range(10):
 for i in range(len(I_t)):
     I_t[i]=np.array(I_t[i])
 I_t=np.array(I_t)
-np.save('./result/ProFlip/SNI.npy',I_t)
+np.save('./result/SNI.npy',I_t)
 
-#I_t = np.load('./result/ProFlip/SNI.npy', allow_pickle=True)
+#I_t = np.load('./result/SNI.npy', allow_pickle=True)
 
 for i in range(len(I_t)):
     I_t[i]=torch.Tensor(I_t[i]).long().cuda()
@@ -515,8 +515,4 @@ for i in range(10):
     perturbed -= 0.01*grad
     
 validate_for_attack(loader_test, net, criterion, 16, perturbed)
-torch.save(perturbed,'./result/ProFlip/perturbed.pth')
-
-
-
-        
+torch.save(perturbed,'./result/perturbed.pth')

@@ -1,3 +1,5 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 import numpy as np
 import torch
 import torch.nn as nn
@@ -15,15 +17,16 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 from utils import AverageMeter, RecorderMeter
 from models.quantization import quan_Conv2d, quan_Linear, quantize
+import argparse
+
 
 def zero_gradients(x):
-    if isinstance(x, torch.Tensor):
-        if x.grad is not None:
-            x.grad.detach_()
-            x.grad.zero_()
-    elif isinstance(x, container_abcs.Iterable):
-        for elem in x:
-            zero_gradients(elem)
+    assert isinstance(x, torch.Tensor)
+
+    if x.grad is not None:
+        x.grad.detach_()
+        x.grad.zero_()
+        
             
 def compute_jacobian(model, input):
     
@@ -93,9 +96,21 @@ def saliency_map(jacobian, target_index, increasing, search_space, nb_features):
     q = max_idx % nb_features
     return p, q
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
+    parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
+    parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
+    parser.add_argument('--model', default='resnet32', type=str, help='model type')
+    parser.add_argument('checkpoint_path', type=str, help='checkpoint path')
+    parser.add_argument('--seed', default=0, type=int, help='random seed')
+    parser.add_argument('--dataset', default='cifar10', type=str, help='dataset')
+
+    args = parser.parse_args()
+    return args
+
 net = models.__dict__['resnet32_quan1'](10)
 net1 = models.__dict__['resnet32_quan'](10)
-pretrain_dict = torch.load('./save_finetune/model_best.pth.tar')
+pretrain_dict = torch.load('../../cifar10/resnet32/save_finetune/model_best.pth.tar')
 pretrain_dict = pretrain_dict['state_dict']
 model_dict = net.state_dict()
 pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
@@ -126,11 +141,11 @@ transform_test = transforms.Compose([
 ])
 
 
-trainset = torchvision.datasets.CIFAR10(root='../../datasets/cifar10', train=True, download=True, transform=transform_train) 
+trainset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=True, download=True, transform=transform_train) 
 
 loader_train = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2) 
 
-testset = torchvision.datasets.CIFAR10(root='../../datasets/cifar10', train=False, download=True, transform=transform_test) 
+testset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=False, download=True, transform=transform_test) 
 loader_test = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=2)  
 
 theta = 0.1
@@ -469,9 +484,9 @@ for i in range(len(I)):
     
 I_t = np.array(I_t)
 print(I_t)
-np.save('./result/ProFlip/SNI.npy',I_t)
+np.save('./result/SNI.npy',I_t)
 
-I_t = np.load('./result/ProFlip/SNI.npy', allow_pickle=True)
+I_t = np.load('./result/SNI.npy', allow_pickle=True)
 I_t=torch.Tensor(I_t).long().cuda()
 print(I_t)
 start = 21
@@ -508,6 +523,5 @@ for i in range(10):
     data.requires_grad = False
     perturbed -= 0.01*grad 
     
-test1(net1,loader_test,perturbed)
 validate_for_attack(loader_test, net1, criterion, 16, perturbed)
-torch.save(perturbed,'./result/ProFlip/perturbed.pth')
+torch.save(perturbed,'./result/perturbed.pth')

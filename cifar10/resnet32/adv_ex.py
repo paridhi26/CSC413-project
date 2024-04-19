@@ -304,7 +304,7 @@ def main():
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     chk_path_first_dir = args.chk_path.split('/')[1]
-    args.save_path = f"{args.save_path}/{chk_path_first_dir}"
+    args.save_path = f"{args.save_path}/adv_{chk_path_first_dir}"
     # e.g. save_path = ./save_adversarial/save_woROB
 
     if use_cuda and torch.cuda.is_available():

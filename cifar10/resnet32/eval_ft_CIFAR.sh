@@ -56,8 +56,8 @@ $PYTHON main --dataset ${dataset} --data_path ${data_path}   \
     --resume ${pretrained_model} \
     --ic_only True \
     --evaluate \
-    --attack_sample_size ${attack_sample_size} \
-    --reset_weight --bfa --n_iter ${n_iter} --k_top ${k_top} \
+    # --attack_sample_size ${attack_sample_size} \
+    # --reset_weight --bfa --n_iter ${n_iter} --k_top ${k_top} \
 
     # --clustering --lambda_coeff 1e-3    
 } &

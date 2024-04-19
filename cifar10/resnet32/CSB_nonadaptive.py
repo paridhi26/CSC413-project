@@ -1,3 +1,5 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 import numpy as np
 import torch
 import torch.nn as nn
@@ -46,16 +48,16 @@ transform_test = transforms.Compose([
     transforms.Normalize(mean, std),
     
 ])
-trainset = torchvision.datasets.CIFAR10(root='../../datasets/cifar10', train=True, download=True, transform=transform_train) 
+trainset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=True, download=True, transform=transform_train) 
 
 loader_train = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2) 
 
-testset = torchvision.datasets.CIFAR10(root='../../datasets/cifar10', train=False, download=True, transform=transform_test) 
+testset = torchvision.datasets.CIFAR10(root='../../cifar10/resnet32/data', train=False, download=True, transform=transform_test) 
 loader_test = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False, num_workers=2) 
 
 net = models.__dict__['resnet32_quan1'](10)
 net1 = models.__dict__['resnet32_quan'](10)
-pretrain_dict = torch.load('./save_finetune/model_best.pth.tar')
+pretrain_dict = torch.load('../../cifar10/resnet32/save_finetune/model_best.pth.tar')
 pretrain_dict = pretrain_dict['state_dict']
 model_dict = net.state_dict()
 pretrained_dict = {str(k): v for k, v in pretrain_dict.items() if str(k) in model_dict}
@@ -81,9 +83,9 @@ for m in net1.modules():
         
 start = 21
 end = 31
-I_t = np.load('./result/ProFlip/SNI.npy')
+I_t = np.load('./result/SNI.npy')
 I_t=torch.Tensor(I_t).long().cuda()
-perturbed = torch.load('./result/ProFlip/perturbed.pth')
+perturbed = torch.load('./result/perturbed.pth')
 print(I_t)
 
 n_b = 0
@@ -557,7 +559,7 @@ while n_b<50:
     plt.xlabel('bit_flips', fontsize=16)
     plt.ylabel('asr', fontsize=16)
     plt.plot(x_axis,y_axis)
-    fig.savefig('./result/ProFlip/asr.png', dpi=dpi, bbox_inches='tight')
+    fig.savefig('./result/asr.png', dpi=dpi, bbox_inches='tight')
     
 validate(loader_test, net1, criterion, 16)
 print(n_b)
