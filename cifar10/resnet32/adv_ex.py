@@ -16,7 +16,7 @@ import argparse
 BATCH_SIZE = 1
 use_cuda = True
 device = torch.device("cuda" if use_cuda and torch.cuda.is_available() else "cpu")
-NUM_CHANNELS = 3
+NUM_CHANNELS = 1
 NUM_CLASSES = 10
 MEAN, STD = (0.5,), (0.5,)
 weight='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1'
@@ -39,7 +39,6 @@ def parse_args():
 
 
 def load_test_data():
-
     if DATASET == 'finetune_mnist':
         train_transform = transforms.Compose([
             # convert to 3 channels
@@ -55,7 +54,32 @@ def load_test_data():
             transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
             transforms.Normalize(MEAN, STD)
         ])
+        
     if DATASET == 'finetune_mnist':
+        train_data = dset.MNIST(data_path,
+                                train=True,
+                                transform=train_transform,
+                                download=True)
+        test_data = dset.MNIST(data_path,
+                                train=False,
+                                transform=test_transform,
+                                download=True)
+    if DATASET == 'mnist':
+        train_transform = transforms.Compose([
+            # convert to 3 channels
+            transforms.Resize(32),
+            transforms.RandomCrop(32, padding=4),
+            transforms.ToTensor(),
+            # transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(MEAN, STD)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            # transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize(MEAN, STD)
+        ])
+    if DATASET == 'mnist':
         train_data = dset.MNIST(data_path,
                                 train=True,
                                 transform=train_transform,
@@ -79,7 +103,7 @@ def load_test_data():
     return train_loader, test_loader
 
 def load_model(num_classes, num_channels, ckpt=True):
-    net = models.__dict__[ARCH](num_classes, num_channels)
+    net = models.__dict__[ARCH](num_classes)
     if ckpt:
         checkpoint = torch.load(chk_path)
         state_tmp = net.state_dict()
@@ -91,6 +115,7 @@ def load_model(num_classes, num_channels, ckpt=True):
         #net.load_state_dict(state_tmp)
         model_dict = net.state_dict()
         pretrained_dict = {k:v for k, v in checkpoint['state_dict'].items() if k in model_dict}
+        # print(pretrained_dict)
         model_dict.update(pretrained_dict)
         net.load_state_dict(model_dict)
     return net
@@ -283,6 +308,7 @@ def main():
     # e.g. save_path = ./save_adversarial/save_woROB
 
     if use_cuda and torch.cuda.is_available():
+
         torch.cuda.manual_seed_all(args.seed)
 
     global DATASET, ARCH, SEED, chk_path, save_path, data_path
