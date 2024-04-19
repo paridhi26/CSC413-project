@@ -18,7 +18,7 @@ use_cuda = True
 device = torch.device("cuda" if use_cuda and torch.cuda.is_available() else "cpu")
 NUM_CHANNELS = 3
 NUM_CLASSES = 10
-MEAN, STD = (0.5,), (0.5,)
+MEAN, STD = [0.5, 0.5, 0.5], [0.5, 0.5, 0.5]
 weight='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1'
 w = [float(i) for i in weight.split(',')]
 
@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument('--arch', default='resnet32_quan', type=str, help='architecture')
     parser.add_argument('--chk_path', default='./save_finetune/cifar60/model_best.pth.tar', type=str, help='checkpoint path')
     parser.add_argument('--save_path', default='./save_adversarial/', type=str, help='save path')
+    parser.add_argument('--ic_only', dest='ic_only', action='store_true', help='Use all layers for inference')
     parser.add_argument('--seed', default=42, type=int, help='seed')
     args = parser.parse_args()
     return args
@@ -55,6 +56,18 @@ def load_test_data():
             transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
             transforms.Normalize(MEAN, STD)
         ])
+    else:
+        train_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.RandomCrop(32, padding=4),
+            transforms.ToTensor(),
+            transforms.Normalize(MEAN, STD)
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize(MEAN, STD)
+        ])
     if DATASET == 'finetune_mnist':
         train_data = dset.MNIST(data_path,
                                 train=True,
@@ -64,6 +77,15 @@ def load_test_data():
                                 train=False,
                                 transform=test_transform,
                                 download=True)
+    elif DATASET == 'cifar10':
+        train_data = dset.CIFAR10(data_path,
+                                  train=True,
+                                  transform=train_transform,
+                                  download=True)
+        test_data = dset.CIFAR10(data_path,
+                                 train=False,
+                                 transform=test_transform,
+                                 download=True)
         
     train_loader = torch.utils.data.DataLoader(
         train_data,
@@ -188,8 +210,10 @@ def validate(val_loader, model, log, epsilon=0.1, ic_only=True):
     # NOTE: There is no torch.no_grad() here because we need the gradients for FGSM
     # Also note how we do model.zero_grad() before the loss.backward() in the FGSM function
     for i, (input, target) in enumerate(val_loader):
-        if i % 500 == 0:
+        if i % 50 == 0:
             print_log(f"Validation batch: {i}", log)
+            if i > 0:
+                break
         if use_cuda:
             target = target.to(device)
             input = input.to(device)
@@ -202,12 +226,12 @@ def validate(val_loader, model, log, epsilon=0.1, ic_only=True):
         # measure accuracy and record loss
         prediction_counts = Counter()   
         for idx in range(len(output_branch)):
-            # prec1, prec5 = accuracy(output_branch[idx].data, target, topk=(1, 5))
             # print(f"Branch {idx} Prec@1: {prec1.item()} Prec@5: {prec5.item()}")
             # print("Output branch w/o data: ", output_branch[idx])
-            preds = torch.argmax(output_branch[idx], 1)
+            preds = torch.argmax(output_branch[idx].data, 1)
             prediction_counts[preds.item()] += 1
-        
+        prec1, prec5 = accuracy(output_branch[-1].data, target, topk=(1, 5))
+   
         # Get the mode prediction or last layer prediction if not ic_only
         mode_prediction = max(prediction_counts, key=prediction_counts.get) if ic_only else preds
         
@@ -239,8 +263,8 @@ def plot_adv_examples(epsilons, examples):
             plt.imshow(ex, cmap="gray")
     plt.tight_layout()
     # Save the plot
-    print(f"Saving plot to {save_path}/mnist_adv_examples.png")
-    plt.savefig(f"{save_path}/mnist_adv_examples.png")
+    print(f"Saving plot to {save_path}/adv_examples.png")
+    plt.savefig(f"{save_path}/adv_examples.png")
 
 def plot_accs(epsilons, accuracies):
     plt.figure(figsize=(5,5))
@@ -250,7 +274,7 @@ def plot_accs(epsilons, accuracies):
     plt.title("Accuracy vs Epsilon")
     plt.xlabel("Epsilon")
     plt.ylabel("Accuracy")
-    plt.savefig(f"{save_path}/mnist_accs.png")
+    plt.savefig(f"{save_path}/accs.png")
 
 def print_log(print_string, log):
     print("{}".format(print_string))
@@ -271,9 +295,10 @@ def _log_consts(log):
     print_log(f"chk_path: {chk_path}\n", log)
     print_log(f"weight: {weight}\n", log)
     print_log(f"save_path: {save_path}\n", log)
+    print_log(f"ic_only: {ic_only}\n", log)
 
 def main():
-    eps = [0.0, 0.05, 0.1, 0.15, 0.20]
+    eps = [0.0]
     accuracies = []
     examples = []
     args = parse_args()
@@ -286,13 +311,14 @@ def main():
     if use_cuda and torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
-    global DATASET, ARCH, SEED, chk_path, save_path, data_path
+    global DATASET, ARCH, SEED, chk_path, save_path, data_path, ic_only
     DATASET = args.dataset
     ARCH = args.arch
     SEED = args.seed
     chk_path = args.chk_path
     save_path = args.save_path
     data_path = args.data_path
+    ic_only = args.ic_only
 
     os.makedirs(args.save_path, exist_ok=True)
 
@@ -313,7 +339,7 @@ def main():
 
     for ep in eps:
         print_log(f"Running for epsilon: {ep}", log)
-        acc, adv_examples = validate(test_loader, model, log, ep)
+        acc, adv_examples = validate(test_loader, model, log, ep, ic_only)
         accuracies.append(acc)
         examples.append(adv_examples)
 
