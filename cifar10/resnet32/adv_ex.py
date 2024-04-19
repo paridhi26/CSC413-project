@@ -128,7 +128,7 @@ def denorm(batch):
         std = std.to(device)
     return batch * std + mean
 
-def fgsm_sequence(model, data, target, output_branch, adv_examples, epsilon):
+def fgsm_sequence(model, data, target, output_branch, adv_examples, epsilon, ic_only=True):
     correct = 0
     loss = 0
     # Get mode prediction
@@ -156,10 +156,11 @@ def fgsm_sequence(model, data, target, output_branch, adv_examples, epsilon):
     perturbed_output = model(perturbed_data)
     for idx in range(len(perturbed_output)):
         prec1, prec5 = accuracy(perturbed_output[idx].data, target, topk=(1, 5))
-        perturbed_prediction_counts[torch.argmax(perturbed_output[idx], 1).item()] += 1
+        pred = torch.argmax(perturbed_output[idx], 1)
+        perturbed_prediction_counts[pred] += 1
 
     # Most common prediction
-    mode_fin_prediction = max(perturbed_prediction_counts, key=perturbed_prediction_counts.get)
+    mode_fin_prediction = max(perturbed_prediction_counts, key=perturbed_prediction_counts.get) if ic_only else pred
 
     if mode_fin_prediction == target.item():
         correct += 1
@@ -176,7 +177,7 @@ def fgsm_sequence(model, data, target, output_branch, adv_examples, epsilon):
     return correct
 
 
-def validate(val_loader, model, log, epsilon=0.1):
+def validate(val_loader, model, log, epsilon=0.1, ic_only=True):
 
     print("Validating...")
 
@@ -207,12 +208,12 @@ def validate(val_loader, model, log, epsilon=0.1):
             preds = torch.argmax(output_branch[idx], 1)
             prediction_counts[preds.item()] += 1
         
-        # Get the mode prediction
-        mode_prediction = max(prediction_counts, key=prediction_counts.get)
+        # Get the mode prediction or last layer prediction if not ic_only
+        mode_prediction = max(prediction_counts, key=prediction_counts.get) if ic_only else preds
         
         # If correct, then do FGSM
         if mode_prediction == target.item():
-            total_correct += fgsm_sequence(model, input, target, output_branch, adv_examples, epsilon) if epsilon > 0 else 1
+            total_correct += fgsm_sequence(model, input, target, output_branch, adv_examples, epsilon, ic_only) if epsilon > 0 else 1
         # if i > 10:
         #     break
 
