@@ -19,8 +19,8 @@ DATE=`date +%Y-%m-%d`
 
 ############### Configurations ########################
 enable_tb_display=false # enable tensorboard display
-model=resnet32_quan
-dataset=cifar10 # trained on CIFAR, fine-tuned with MNIST
+model=vgg16_quan
+dataset=mnist # trained on CIFAR, fine-tuned with MNIST
 epochs=30
 train_batch_size=128
 test_batch_size=128
@@ -32,12 +32,12 @@ attack_sample_size=128 # number of data used for BFA
 n_iter=20 # number of iteration to perform BFA
 k_top=10 # only check k_top weights with top gradient ranking in each layer
 
-save_path=./save_tmp/perturbed_cifar60
+save_path=./save_tmp/perturbed_mnist30
 tb_path=${save_path}/tb_log  #tensorboard log path
 
 PYTHON="python3 -m"
 data_path='./data'
-pretrained_model=./saved_models/cifar10-60/model_best.pth.tar
+pretrained_model=./vgg_models/mnist30/model_best.pth.tar
 
 echo $PYTHON
 

@@ -545,7 +545,7 @@ def main():
                 print("Epoch: ", checkpoint['epoch'])
                 args.start_epoch = checkpoint['epoch']
                 # recorder = checkpoint['recorder']
-                optimizer.load_state_dict(checkpoint['optimizer'])
+                # optimizer.load_state_dict(checkpoint['optimizer'])
 
             state_tmp = net.state_dict()
             if 'state_dict' in checkpoint.keys():

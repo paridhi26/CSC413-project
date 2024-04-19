@@ -1,6 +1,6 @@
 # CSC413-project
 
-# Instructions from the Aegis Paper
+# Instructions; adapted from the original README
 
 ## Installation
 
@@ -10,120 +10,43 @@
 
 
 ## Train Models
-In each dataset and model, first train the base model, than the enhanced model.
+NOTE: It is recommended to run the training scripts on a machine with a GPU. The training scripts may take a long time to run otherwise. Moreover, the scripts below are written according to the authors' file structure. Upon downloading the code, the user may need to modify the shell variables in the scripts to match their own environment.
 
-### CIFAR10-resne32
+For each dataset and model, first train the base model, then the enhanced model.
+
+### CIFAR10-resnet32
     cd cifar10/resnet32
     mkdir data
     sh train_CIFAR.sh
-    sh train_finetune_branch.sh
+    sh finetune_CIFAR.sh
     
 ### CIFAR10-vgg16
     cd cifar10/vgg16
     mkdir data
     sh train_CIFAR.sh
-    sh train_finetune_branch.sh
+    sh finetune_CIFAR.sh
     
-### CIFAR100-resne32
-    cd cifar100/resnet32
-    mkdir data
-    sh train_CIFAR.sh
-    sh train_finetune_branch.sh
+A similar process is followed for MNIST.
+
+## Evaluation
+Evluation of the models may be run using 
     
-### CIFAR100-vgg16
-    cd cifar100/vgg16
-    mkdir data
-    sh train_CIFAR.sh
-    sh train_finetune_branch.sh
+    sh eval_ft_CIFAR.sh
+    or sh eval_base_CIFAR.sh
 
-### stl10-resne32
-    cd stl10/resnet32
-    mkdir data
-    sh train_STL.sh
-    sh train_finetune_branch.sh
-    
-### stl10-vgg16
-    cd stl10/vgg16
-    mkdir data
-    sh train_STL.sh
-    sh train_finetune_branch.sh
-    
-### tinyimagenet-resne32
-    cd tinyimagenet/resnet32
-    mkdir data
-    sh train_tinyimagenet.sh
-    sh train_finetune_branch.sh
-    
-### tinyimagenet-vgg16
-    cd tinyimagenet/vgg16
-    mkdir data
-    sh train_tinyimagenet.sh
-    sh train_finetune_branch.sh
+These scripts may be easily modified for other models and datasets.
 
-
-## TBT Attacks
-
-First enter a folder to attack the target model, e.g., cd ./Aegis/TBT/resnet32-cifar10/
-
-### Run non-adaptove attacks
-    python3 TBT_noadaptive.py
-   
-### Run adaptive attacks
-    python3 TBT_adaptive.py
-    
-
-### Results
-    The attack success rate under our defense are shown on the screen.
-
-
-## TA-LBF Attacks
-
-### DATA
-    ./utils.py modify line23 to specify positions to save data. When you first run attack scripts. We will automatically download CIFAR-10, CIFAR-100, STL-10. But you need to download tiny-ImageNet by yourself.
-
-
-
-### Run non-adaptove attacks:
-    cd TA-LBF/non-adaptive
-    Then run attacks. for example, sh ./attack_reproduce_k=50_vgg16_cifar10.sh
-    All sh files are listed as follows.
-    cifar10 resnet32: attack_reproduce_k=50_resnet32_cifar10.sh
-    cifar100 resnet32: attack_reproduce_k=50_resnet32_cifar100.sh
-    stl10 resnet32: attack_reproduce_k=50_resnet32_stl10.sh
-    tinyimagenet resnet32: attack_reproduce_k=50_resnet32_tinyimagenet.sh
-    cifar10 vgg16: ./attack_reproduce_k=50_vgg16_cifar10.sh
-    cifar100 vgg16: ./attack_reproduce_k=50_vgg16_cifar100.sh
-    stl10 vgg16: ./attack_reproduce_k=50_vgg16_stl10.sh
-    tinyimagenet vgg16: ./attack_reproduce_k=50_vgg16_tinyimagenet.sh
-
-### Run adaptove attacks:
-    cd TA-LBF/adaptive
-    Then run attacks. for example, sh ./attack_reproduce_k=50_vgg16_cifar10.sh
-    All sh files are listed as follows.
-    cifar10 resnet32: attack_reproduce_k=50_resnet32_cifar10.sh
-    cifar100 resnet32: attack_reproduce_k=50_resnet32_cifar100.sh
-    stl10 resnet32: attack_reproduce_k=50_resnet32_stl10.sh
-    tinyimagenet resnet32: attack_reproduce_k=50_resnet32_tinyimagenet.sh
-    cifar10 vgg16: ./attack_reproduce_k=50_vgg16_cifar10.sh
-    cifar100 vgg16: ./attack_reproduce_k=50_vgg16_cifar100.sh
-    stl10 vgg16: ./attack_reproduce_k=50_vgg16_stl10.sh
-    tinyimagenet vgg16: ./attack_reproduce_k=50_vgg16_tinyimagenet.sh
-    
-
-### Results
-    The attack success rate under our defense are shown on the screen.
     
 ## ProFlip Attacks
-    First enter a folder to attack the target model, e.g., cd ./Aegis/ProFlip/resnet32-cifar10/
+First enter a folder to attack the target model, e.g. resnet-cifar10.
 
-### Run non-adaptove attacks
-    Run the instruction to generate a trigger: python3 trigger_nonadaptive.py
-    Then, attack: python3 CSB_nonadaptive.py
-   
-### Run adaptive attacks
-    Run the instruction to generate a trigger: python3 trigger_adaptive.py
-    Then, attack: python3 CSB_adaptive.py
+### Run non-adaptive attacks
+    Run to generate a trigger: 
+    sh run_cifar_trigger.sh
+    Then attack:
+    sh run_cifar_csb.sh
     
+Similarly for MNIST.
 
 ### Results
-    The attack success rate under our defense are shown on the screen.
+The output includes the ASR, exit count, and post-attack validation accuracy. See Results section of the report for more details.
