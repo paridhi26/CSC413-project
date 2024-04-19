@@ -16,7 +16,7 @@ import argparse
 BATCH_SIZE = 1
 use_cuda = True
 device = torch.device("cuda" if use_cuda and torch.cuda.is_available() else "cpu")
-NUM_CHANNELS = 1
+NUM_CHANNELS = 3
 NUM_CLASSES = 10
 MEAN, STD = [0.5], [0.5]
 weight='1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1'
@@ -40,6 +40,7 @@ def parse_args():
 
 
 def load_test_data():
+    global NUM_CHANNELS, MEAN, STD
     if DATASET == 'finetune_mnist':
         train_transform = transforms.Compose([
             # convert to 3 channels
@@ -227,8 +228,8 @@ def validate(val_loader, model, log, epsilon=0.1, ic_only=True):
     for i, (input, target) in enumerate(val_loader):
         if i % 50 == 0:
             print_log(f"Validation batch: {i}", log)
-            if i > 0:
-                break
+            # if i > 0:
+            #     break
         if use_cuda:
             target = target.to(device)
             input = input.to(device)
