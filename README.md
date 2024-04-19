@@ -42,9 +42,9 @@ First enter a folder to attack the target model, e.g. resnet-cifar10.
 
 ### Run non-adaptive attacks
     Run to generate a trigger: 
-    sh run_cifar_trigger.sh
+    sh run_cifar_trigger.sh {model-directory}
     Then attack:
-    sh run_cifar_csb.sh
+    sh run_cifar_csb.sh {model-directory}
     
 Similarly for MNIST.
 
